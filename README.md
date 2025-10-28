@@ -135,7 +135,39 @@ You can also run the simulation using Docker, which ensures a consistent environ
       docker exec -it ackermann_sim bash
    ```
 
-   
+### GPU Acceleration Tips (WSLg + NVIDIA)
+
+1. On the host (WSL) session, allow the container to connect to the Wayland/X server:
+   ```bash
+   xhost +si:localuser:root
+   ```
+   Repeat this each time you open a new WSL terminal.
+2. Start the stack with Docker Compose. The included `docker-compose.yaml` exports the NVIDIA GPU and forces Gazebo to use the Vulkan renderer for better utilisation:
+   ```bash
+   docker compose up --build ackermann_sim
+   ```
+3. Attach to the container shell when needed:
+   ```bash
+   docker compose exec ackermann_sim bash
+   ```
+4. Inside the container, initialise the ROS environment before launching simulations:
+   ```bash
+   source /opt/ros/jazzy/setup.bash
+   source /root/colcon_ws/install/setup.bash
+   ```
+5. Verify hardware acceleration:
+   ```bash
+   glxinfo -B | grep -E "Accelerated|renderer"
+   nvidia-smi
+   ```
+   Expect `Accelerated: yes` and the MX450 listed by `nvidia-smi`.
+6. Launch Gazebo with the provided bringup:
+   ```bash
+   ros2 launch saye_bringup saye_spawn.launch.py
+   ```
+   Increase render quality via Gazebo’s GUI (anti-aliasing, shadows) if you want to push the GPU harder.
+
+
 > **Note:** Inside the container, you can run the simulation commands as normal.
 
 ## Usage

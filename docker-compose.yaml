@@ -30,6 +30,8 @@ services:
       - GALLIUM_DRIVER=d3d12
       - MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
       - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+      - GZ_RENDER_ENGINE=vulkan
+      - MESA_VK_WSI_PRESENT_MODE=mailbox
 
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
