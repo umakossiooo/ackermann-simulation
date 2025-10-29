@@ -7,7 +7,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node
 
@@ -26,14 +26,12 @@ def generate_launch_description():
         robot_desc = infp.read()
 
     # Setup to launch the simulator and Gazebo world
+    world = LaunchConfiguration('world')
+
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
-        launch_arguments={'gz_args': PathJoinSubstitution([
-            pkg_project_description,
-            'worlds',
-            'saye_world.sdf'
-        ])}.items(),
+        launch_arguments={'gz_args': world}.items(),
     )
 
     # Takes the description and joint angles as inputs and publishes the 3D poses of the robot links
@@ -77,10 +75,22 @@ def generate_launch_description():
         ]
     )
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'world',
+            default_value=os.path.join(
+                pkg_project_description,
+                'worlds',
+                'saye_world.sdf'
+            ),
+            description='Absolute path to the Gazebo world SDF file.'
+        ),
         gz_sim,
         gz_spawn_entity,
-        DeclareLaunchArgument('rviz', default_value='true',
-                              description='Open RViz.'),
+        DeclareLaunchArgument(
+            'rviz',
+            default_value='true',
+            description='Open RViz.'
+        ),
         bridge,
         robot_state_publisher,
         rviz
