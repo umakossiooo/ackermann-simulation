@@ -149,7 +149,10 @@ You can also run the simulation using Docker, which ensures a consistent environ
    ```bash
    source /opt/ros/jazzy/setup.bash
    source /root/colcon_ws/install/setup.bash
+   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+   export ROS_DISABLE_SHARED_MEMORY=1
    ```
+   > Repeat this block in **every** new terminal (and after each container restart) before running any `ros2` commands. Without the sourcing + exports, Gazebo/SLAM/Nav2 will fall back to Fast DDS shared memory and fail to launch.
 
 7. Launch the Bari world with the GUI:
    ```bash
@@ -172,7 +175,7 @@ You can also run the simulation using Docker, which ensures a consistent environ
 ### Using the Bari Map
 
 - The Bari 3D environment (from `src/map_osm_converter/models/bari_3d`) is included in a new world: `saye_description/worlds/bari_world.sdf` (upright orientation, yaw-aligned with the robot).
-- Default spawn is shifted to a Bari avenue (`robot_x = 66.0`, `robot_y = 275.0`, `robot_Y = 0.0`); pass `robot_x`, `robot_y`, `robot_Y`, etc. at launch if you want to start elsewhere.
+- The Bari mesh is pre-shifted so the world origin sits on a main avenue. The default spawn is at the origin (`robot_x = 0.0`, `robot_y = 0.0`, `robot_Y = 0.0`); pass `robot_x`, `robot_y`, `robot_Y`, etc. at launch if you want to start elsewhere.
 - Ensure Gazebo can discover the Bari model by appending the converter models path to `GZ_SIM_RESOURCE_PATH` (already set in Dockerfile and docker-compose). For local non-Docker use:
   ```bash
   export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:/your/path/ackermann_sim/src/map_osm_converter/models

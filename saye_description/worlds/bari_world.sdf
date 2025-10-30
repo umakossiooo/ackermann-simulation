@@ -26,40 +26,19 @@
     <!-- Bari city 3D model generated via map_osm_converter -->
     <include>
       <name>bari_3d</name>
-      <!-- Convert the OSM mesh (Y-up) into Gazebo's Z-up frame, then rotate 90° around Z to line up ENU axes. -->
-      <pose>0 0 0 1.5708 0 1.5708</pose>
+      <!-- Convert the OSM mesh (Y-up) into Gazebo's Z-up frame, rotate 90° around Z, and shift so the origin sits on an open street. -->
+      <pose>-66 -275 0 1.5708 0 1.5708</pose>
       <uri>model://bari_3d</uri>
     </include>
 
-    <!-- Physics ground plane, sunk slightly below the Bari mesh so visuals don't Z-fight -->
-    <model name="ground_plane">
-      <static>true</static>
-      <pose>0 0 -0.05 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>1000 1000</size>
-            </plane>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <transparency>1.0</transparency>
-          <cast_shadows>false</cast_shadows>
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>1000 1000</size>
-            </plane>
-          </geometry>
-          <material>
-            <ambient>0 0 0 0</ambient>
-            <diffuse>0 0 0 0</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- Camera defaults to follow the spawned Ackermann chassis -->
+    <gui fullscreen="0">
+      <camera name="follow_camera">
+        <pose>-8 0 4 0.4 0.6 0</pose>
+        <view_controller>orbit</view_controller>
+        <track_visual>saye::base_link::BaseVisual</track_visual>
+      </camera>
+    </gui>
 
   </world>
 </sdf>
