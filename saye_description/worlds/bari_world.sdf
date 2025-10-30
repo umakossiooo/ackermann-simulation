@@ -26,14 +26,15 @@
     <!-- Bari city 3D model generated via map_osm_converter -->
     <include>
       <name>bari_3d</name>
-      <pose>0 0 0 -1.5708 0 1.5708</pose>
+      <!-- Convert the OSM mesh (Y-up) into Gazebo's Z-up frame, then rotate 90° around Z to line up ENU axes. -->
+      <pose>0 0 0 1.5708 0 1.5708</pose>
       <uri>model://bari_3d</uri>
     </include>
 
-    <!-- Explicit ground plane to ensure horizontal floor -->
+    <!-- Physics ground plane, sunk slightly below the Bari mesh so visuals don't Z-fight -->
     <model name="ground_plane">
       <static>true</static>
-      <pose>0 0 0 0 0 0</pose>
+      <pose>0 0 -0.05 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
@@ -44,12 +45,18 @@
           </geometry>
         </collision>
         <visual name="visual">
+          <transparency>1.0</transparency>
+          <cast_shadows>false</cast_shadows>
           <geometry>
             <plane>
               <normal>0 0 1</normal>
               <size>1000 1000</size>
             </plane>
           </geometry>
+          <material>
+            <ambient>0 0 0 0</ambient>
+            <diffuse>0 0 0 0</diffuse>
+          </material>
         </visual>
       </link>
     </model>

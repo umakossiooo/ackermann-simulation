@@ -119,68 +119,60 @@ You can also run the simulation using Docker, which ensures a consistent environ
    cd ackermann-vehicle-gzsim-ros2
    ```
 
-2. Build and run the Docker container:
-   ```bash
-      docker run -it \
-      --name ackermann_sim \
-      --hostname ackermann_sim \
-      --env="DISPLAY=$DISPLAY" \
-      --env="QT_X11_NO_MITSHM=1" \
-      --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-      --privileged alitekes1/ackermann_sim:latest
-   ```
-
-3. If you want to additional terminal for same container
-   ```bash
-      docker exec -it ackermann_sim bash
-   ```
-
-### GPU Acceleration Tips (WSLg + NVIDIA)
-
-1. On the host (WSL) session, allow the container to connect to the Wayland/X server:
+2. Allow the container to talk to X/WSLg from your WSL host (run once per terminal):
    ```bash
    xhost +si:localuser:root
    ```
-   Repeat this each time you open a new WSL terminal.
-2. Start the stack with Docker Compose. The included `docker-compose.yaml` exports the NVIDIA GPU and forces Gazebo to use the Vulkan renderer for better utilisation:
+
+3. Start the container with the **software renderer (default, stable on WSLg)**:
    ```bash
    docker compose up --build ackermann_sim
    ```
-3. Attach to the container shell when needed:
+   This profile forces Mesa/llvmpipe so the Gazebo GUI can load the Bari mesh without hitting the D3D12 crash.
+
+4. Open extra shells as needed:
    ```bash
    docker compose exec ackermann_sim bash
    ```
-4. Inside the container, initialise the ROS environment before launching simulations:
+
+5. Sync the overlay once (and whenever you pull new code):
+   ```bash
+   colcon build --symlink-install
+   ```
+   The `--symlink-install` flag keeps the launch files and worlds in `install/` linked to your workspace, so later edits show up immediately.
+   > If you already had this workspace built before pulling these updates, force CMake to regenerate the install tree so the URDF/world symlinks are refreshed:
+   > ```bash
+   > colcon build --symlink-install --packages-select saye_description saye_bringup --cmake-clean-cache
+   > ```
+
+6. Source the environment before running tools:
    ```bash
    source /opt/ros/jazzy/setup.bash
    source /root/colcon_ws/install/setup.bash
    ```
-5. Verify hardware acceleration:
+
+7. Launch the Bari world with the GUI:
    ```bash
-   glxinfo -B | grep -E "Accelerated|renderer"
-   nvidia-smi
-   ```
-   Expect `Accelerated: yes` and the MX450 listed by `nvidia-smi`.
-6. Launch Gazebo with the provided bringup:
-   ```bash
-   # By default this now launches the Bari world
-   ros2 launch saye_bringup saye_spawn.launch.py
-   
-   # To explicitly select a world installed in saye_description/worlds:
-   ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf
-   
-   # To use an absolute path (no rebuild needed), override gz_args:
+   ros2 launch saye_bringup saye_spawn.launch.py gui:=true
+
+   # Provide an absolute path if you keep custom worlds outside the install tree
    ros2 launch saye_bringup saye_spawn.launch.py \
-     gz_args:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_description/worlds/bari_world.sdf
+     gz_args:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_description/worlds/bari_world.sdf \
+     gui:=true
    ```
-   Increase render quality via Gazebo’s GUI (anti-aliasing, shadows) if you want to push the GPU harder.
 
-
-> **Note:** Inside the container, you can run the simulation commands as normal.
+> **Need the NVIDIA path again?**  
+> Enable the GPU profile and start the alternative service:
+> ```bash
+> docker compose --profile gpu up --build ackermann_sim_gpu
+> docker compose --profile gpu exec ackermann_sim_gpu bash
+> ```
+> The GPU service restores the D3D12/Vulkan environment variables used previously. If the Gazebo GUI crashes under WSLg, fall back to the default `ackermann_sim` service.
 
 ### Using the Bari Map
 
-- The Bari 3D environment (from `src/map_osm_converter/models/bari_3d`) is included in a new world: `saye_description/worlds/bari_world.sdf`.
+- The Bari 3D environment (from `src/map_osm_converter/models/bari_3d`) is included in a new world: `saye_description/worlds/bari_world.sdf` (upright orientation, yaw-aligned with the robot).
+- Default spawn is shifted slightly (`robot_y = -6.0`) so the car appears on an open lane; pass `robot_x`, `robot_y`, `robot_Y`, etc. at launch if you want to start elsewhere.
 - Ensure Gazebo can discover the Bari model by appending the converter models path to `GZ_SIM_RESOURCE_PATH` (already set in Dockerfile and docker-compose). For local non-Docker use:
   ```bash
   export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:/your/path/ackermann_sim/src/map_osm_converter/models
@@ -193,15 +185,39 @@ You can also run the simulation using Docker, which ensures a consistent environ
 
 #### If Gazebo crashes when loading the Bari OBJ
 - The Bari OBJ is large and can expose GPU driver issues (especially with WSLg / D3D12).
-- Use the software renderer and run headless for stability:
+- The `ackermann_sim` docker-compose service already enables the Mesa llvmpipe renderer, which keeps the GUI stable.
+- Running natively (without Docker)? Export the same variables before launching:
   ```bash
   export LIBGL_ALWAYS_SOFTWARE=1
   export GALLIUM_DRIVER=llvmpipe
-  # Optional: disable RViz to save resources
-  ros2 launch saye_bringup saye_spawn.launch.py rviz:=false \
-    gz_args:='-r -s /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_description/worlds/bari_world.sdf'
   ```
-  Then start SLAM / Nav2 as usual. You can start `rviz2` separately once the world is running.
+  Then launch as usual (optionally disable RViz to save CPU):
+  ```bash
+  ros2 launch saye_bringup saye_spawn.launch.py rviz:=false gui:=true
+  ```
+  You can start `rviz2` separately once the world is running.
+
+#### SLAM + Nav2 on Bari
+1. Launch the simulator (terminal 1):
+   ```bash
+   ros2 launch saye_bringup saye_spawn.launch.py gui:=true
+   ```
+2. Start SLAM Toolbox (terminal 2):
+   ```bash
+   ros2 launch saye_bringup slam.launch.py
+   ```
+   Drive the vehicle around Bari until the `/map` looks complete in RViz.
+3. Save the map (still terminal 2, choose any destination):
+   ```bash
+   ros2 run nav2_map_server map_saver_cli -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
+   ```
+   This generates `bari_map.yaml` and `bari_map.pgm`.
+4. Launch Nav2 using the freshly saved map (terminal 3):
+   ```bash
+   ros2 launch saye_bringup navigation_bringup.launch.py \
+     map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map.yaml
+   ```
+   The bringup uses `/scan`, `/odom`, and `/imu` bridged from Gazebo, so navigation is immediately ready once AMCL converges.
 
 ## Usage
 

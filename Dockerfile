@@ -26,6 +26,8 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/gz
     ros-${ROS_DISTRO}-actuator-msgs \
     ros-${ROS_DISTRO}-image-transport \
     ros-${ROS_DISTRO}-nav2* \
+    ros-${ROS_DISTRO}-teleop-twist-keyboard \
+    ros-${ROS_DISTRO}-robot-state-publisher \
     ros-${ROS_DISTRO}-behaviortree-cpp-v3 \
     ros-${ROS_DISTRO}-sdformat-urdf \
     ros-${ROS_DISTRO}-rclcpp \
@@ -37,7 +39,7 @@ RUN mkdir -p ${COLCON_WS_SRC} && \
     git clone https://github.com/alitekes1/ackermann-vehicle-gzsim-ros2.git ${COLCON_WS_SRC}/ackermann-vehicle-gzsim-ros2 && \
     cd ${COLCON_WS} && \
     . /opt/ros/${ROS_DISTRO}/setup.sh && \
-    colcon build
+    colcon build --symlink-install
 
 # Environment setup
 ENV GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:${COLCON_WS_SRC}/ackermann-vehicle-gzsim-ros2:${COLCON_WS_SRC}/map_osm_converter/models

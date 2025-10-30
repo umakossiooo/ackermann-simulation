@@ -1,15 +1,46 @@
+x-base-environment: &base_environment
+  DISPLAY: ${DISPLAY}
+  XDG_RUNTIME_DIR: /tmp
+  QT_X11_NO_MITSHM: "1"
+
+x-ackermann-service: &ackermann_service
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      ROS_DISTRO: jazzy
+      GZ_VERSION: harmonic
+  image: alitekes1/ackermann_sim:latest
+  entrypoint: ["/bin/bash"]
+  working_dir: /root/colcon_ws
+  stdin_open: true
+  tty: true
+
+x-shared-volumes: &shared_volumes
+  - /tmp/.X11-unix:/tmp/.X11-unix:rw
+  - /run/user:/run/user:ro
+  - /home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2:/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2
+  - /home/studente/ackermann_sim/src/map_osm_converter:/root/colcon_ws/src/map_osm_converter:ro
+
 services:
   ackermann_sim:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        ROS_DISTRO: jazzy
-        GZ_VERSION: harmonic
-    image: alitekes1/ackermann_sim:latest
-    entrypoint: ["/bin/bash"]
+    <<: *ackermann_service
     container_name: ackermann_sim
+    environment:
+      <<: *base_environment
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      GALLIUM_DRIVER: llvmpipe
+      MESA_GL_VERSION_OVERRIDE: "4.5"
+      MESA_GLSL_VERSION_OVERRIDE: "450"
+      MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+      __GLX_VENDOR_LIBRARY_NAME: mesa
+      QT_QPA_PLATFORM: xcb
+    volumes: *shared_volumes
 
+  ackermann_sim_gpu:
+    <<: *ackermann_service
+    container_name: ackermann_sim_gpu
+    profiles: ["gpu"]
     runtime: nvidia
     deploy:
       resources:
@@ -18,26 +49,17 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-
     environment:
-      - DISPLAY=${DISPLAY}
-      - XDG_RUNTIME_DIR=/tmp
-      - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - LD_LIBRARY_PATH=/usr/lib/wsl/lib:/usr/lib/wsl/drivers:${LD_LIBRARY_PATH}
-      - GALLIUM_DRIVER=d3d12
-      - MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-      - __GLX_VENDOR_LIBRARY_NAME=nvidia
-      - GZ_RENDER_ENGINE=vulkan
-      - __GLX_VENDOR_LIBRARY_NAME=nvidia
-      - __NV_PRIME_RENDER_OFFLOAD=1
-      - GALLIUM_DRIVER=d3d12
-      - MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-      - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
-      - GZ_RENDER_ENGINE=vulkan
-      - MESA_VK_WSI_PRESENT_MODE=mailbox
-
+      <<: *base_environment
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+      LD_LIBRARY_PATH: /usr/lib/wsl/lib:/usr/lib/wsl/drivers:${LD_LIBRARY_PATH:-}
+      GALLIUM_DRIVER: d3d12
+      MESA_D3D12_DEFAULT_ADAPTER_NAME: NVIDIA
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+      __NV_PRIME_RENDER_OFFLOAD: "1"
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/nvidia_icd.json
+      MESA_VK_WSI_PRESENT_MODE: mailbox
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /run/user:/run/user:ro
@@ -45,6 +67,3 @@ services:
       - /home/studente/ackermann_sim/src/map_osm_converter:/root/colcon_ws/src/map_osm_converter:ro
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       - /usr/lib/wsl:/usr/lib/wsl:ro
-
-    stdin_open: true
-    tty: true

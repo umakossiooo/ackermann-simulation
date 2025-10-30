@@ -53,7 +53,8 @@ def generate_launch_description():
 
     # Robot initial pose (map frame). Override at launch time as needed.
     robot_x_arg = DeclareLaunchArgument('robot_x', default_value='0.0', description='Robot X in meters')
-    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='0.0', description='Robot Y in meters')
+    # Default spawn nudged sideways so we start clear of nearby buildings.
+    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='-6.0', description='Robot Y in meters')
     robot_z_arg = DeclareLaunchArgument('robot_z', default_value='0.35', description='Robot Z in meters')
     robot_R_arg = DeclareLaunchArgument('robot_R', default_value='0.0', description='Robot roll in radians')
     robot_P_arg = DeclareLaunchArgument('robot_P', default_value='0.0', description='Robot pitch in radians')
