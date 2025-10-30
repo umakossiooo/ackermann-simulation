@@ -43,10 +43,10 @@ amcl:
     always_reset_initial_pose: false  
     first_map_only: false
     initial_pose:
-      x: 0.0
-      y: 0.0
+      x: 20.0
+      y: -20.0
       z: 0.0
-      yaw: 0.0
+      yaw: 1.57
 
 amcl_map_client:
   ros__parameters:
