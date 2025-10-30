@@ -40,7 +40,7 @@ RUN mkdir -p ${COLCON_WS_SRC} && \
     colcon build
 
 # Environment setup
-ENV GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:${COLCON_WS_SRC}/ackermann-vehicle-gzsim-ros2
+ENV GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:${COLCON_WS_SRC}/ackermann-vehicle-gzsim-ros2:${COLCON_WS_SRC}/map_osm_converter/models
 ENV ROS_PACKAGE_PATH=$ROS_PACKAGE_PATH:${COLCON_WS_SRC}/ackermann-vehicle-gzsim-ros2
 
 # Auto source on shell startup

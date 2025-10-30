@@ -163,12 +163,45 @@ You can also run the simulation using Docker, which ensures a consistent environ
    Expect `Accelerated: yes` and the MX450 listed by `nvidia-smi`.
 6. Launch Gazebo with the provided bringup:
    ```bash
+   # By default this now launches the Bari world
    ros2 launch saye_bringup saye_spawn.launch.py
+   
+   # To explicitly select a world installed in saye_description/worlds:
+   ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf
+   
+   # To use an absolute path (no rebuild needed), override gz_args:
+   ros2 launch saye_bringup saye_spawn.launch.py \
+     gz_args:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_description/worlds/bari_world.sdf
    ```
    Increase render quality via Gazebo’s GUI (anti-aliasing, shadows) if you want to push the GPU harder.
 
 
 > **Note:** Inside the container, you can run the simulation commands as normal.
+
+### Using the Bari Map
+
+- The Bari 3D environment (from `src/map_osm_converter/models/bari_3d`) is included in a new world: `saye_description/worlds/bari_world.sdf`.
+- Ensure Gazebo can discover the Bari model by appending the converter models path to `GZ_SIM_RESOURCE_PATH` (already set in Dockerfile and docker-compose). For local non-Docker use:
+  ```bash
+  export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:/your/path/ackermann_sim/src/map_osm_converter/models
+  ```
+- To run Nav2 with a custom map for Bari, you can now pass a map YAML to the launch file:
+  ```bash
+  ros2 launch saye_bringup navigation_bringup.launch.py map:=/full/path/to/bari_map.yaml
+  ```
+  If you don’t have a 2D map yet, run SLAM first to create one and save it with `map_saver_cli`.
+
+#### If Gazebo crashes when loading the Bari OBJ
+- The Bari OBJ is large and can expose GPU driver issues (especially with WSLg / D3D12).
+- Use the software renderer and run headless for stability:
+  ```bash
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export GALLIUM_DRIVER=llvmpipe
+  # Optional: disable RViz to save resources
+  ros2 launch saye_bringup saye_spawn.launch.py rviz:=false \
+    gz_args:='-r -s /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_description/worlds/bari_world.sdf'
+  ```
+  Then start SLAM / Nav2 as usual. You can start `rviz2` separately once the world is running.
 
 ## Usage
 

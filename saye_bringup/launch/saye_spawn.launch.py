@@ -20,33 +20,43 @@ def generate_launch_description():
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
     
 
-    # Load the SDF file from "description" package
+    # Path to the SDF file in the description package
     sdf_file  =  os.path.join(pkg_project_description, 'models', 'saye', 'model.sdf')
-    with open(sdf_file, 'r') as infp:
-        robot_desc = infp.read()
+
+    # World selection (default: bari_world.sdf)
+    world_arg = DeclareLaunchArgument(
+        'world', default_value='bari_world.sdf',
+        description='World file name under saye_description/worlds'
+    )
+
+    # Advanced: override full gz sim argument (absolute world path)
+    gz_args_arg = DeclareLaunchArgument(
+        'gz_args',
+        default_value=PathJoinSubstitution([
+            pkg_project_description,
+            'worlds',
+            LaunchConfiguration('world')
+        ]),
+        description='Full argument passed to gz_sim.launch.py (e.g., absolute world path)'
+    )
+
+    # Whether to launch the Gazebo GUI; disable for headless stability in containers
+    gui_arg = DeclareLaunchArgument(
+        'gui',
+        default_value='false',
+        description='Launch Gazebo GUI (false for headless)'
+    )
 
     # Setup to launch the simulator and Gazebo world
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
-        launch_arguments={'gz_args': PathJoinSubstitution([
-            pkg_project_description,
-            'worlds',
-            'saye_world.sdf'
-        ])}.items(),
+        launch_arguments={
+            'gz_args': LaunchConfiguration('gz_args'),
+            'gui': LaunchConfiguration('gui')
+        }.items(),
     )
 
-    # Takes the description and joint angles as inputs and publishes the 3D poses of the robot links
-    robot_state_publisher = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        name='robot_state_publisher',
-        output='both',
-        parameters=[
-            {'use_sim_time': True},
-            {'robot_description': robot_desc},
-        ]
-    )
     # Visualize in RViz
     rviz = Node(
        package='rviz2',
@@ -65,23 +75,25 @@ def generate_launch_description():
         }],
         output='screen'
     )
+    # Spawn directly from the SDF file to avoid SDF->URDF conversion issues
     gz_spawn_entity = Node(
         package='ros_gz_sim',
         executable='create',
         output='screen',
         arguments=[
-            '-topic', '/robot_description',  # Namespace'e uygun topic
+            '-file', sdf_file,
             '-name', 'saye',
-            '-allow_renaming', 'true',
             '-z', '0.35'
         ]
     )
     return LaunchDescription([
+        world_arg,
+        gz_args_arg,
+        gui_arg,
         gz_sim,
         gz_spawn_entity,
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Open RViz.'),
         bridge,
-        robot_state_publisher,
         rviz
     ])

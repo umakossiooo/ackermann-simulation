@@ -6,7 +6,7 @@ amcl:
     alpha3: 0.2
     alpha4: 0.2
     alpha5: 0.2
-    base_frame_id: "saye"
+    base_frame_id: "saye/base_link"
     beam_skip_distance: 0.5
     beam_skip_error_threshold: 0.9
     beam_skip_threshold: 0.3
@@ -51,7 +51,7 @@ amcl:
 bt_navigator:
   ros__parameters:
     global_frame: map
-    robot_base_frame: saye
+    robot_base_frame: saye/base_link
     odom_topic: /odom
     bt_loop_duration: 10
     default_server_timeout: 20
@@ -199,7 +199,7 @@ local_costmap:
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
-      robot_base_frame: saye
+      robot_base_frame: saye/base_link
       rolling_window: true
       width: 3
       height: 3
@@ -239,7 +239,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: saye
+      robot_base_frame: saye/base_link
       # 使用footprint与local_costmap保持一致
       footprint: "[[0.15, 0.045], [0.15, -0.045], [-0.15, -0.045], [-0.15, 0.045]]"
       resolution: 0.05
@@ -346,7 +346,7 @@ behavior_server:
       plugin: "nav2_behaviors::AssistedTeleop"
     local_frame: odom
     global_frame: map
-    robot_base_frame: saye
+    robot_base_frame: saye/base_link
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
@@ -382,7 +382,7 @@ velocity_smoother:
 
 collision_monitor:
   ros__parameters:
-    base_frame_id: "saye"
+    base_frame_id: "saye/base_link"
     odom_frame_id: "odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
     cmd_vel_out_topic: "cmd_vel"
@@ -418,7 +418,7 @@ docking_server:
     undock_linear_tolerance: 0.05
     undock_angular_tolerance: 0.1
     max_retries: 3
-    base_frame: "saye"
+    base_frame: "saye/base_link"
     fixed_frame: "odom"
     dock_backwards: false
     dock_prestaging_tolerance: 0.5
@@ -455,7 +455,7 @@ docking_server:
 
 loopback_simulator:
   ros__parameters:
-    base_frame_id: "saye"
+    base_frame_id: "saye/base_link"
     odom_frame_id: "odom"
     map_frame_id: "map"
     scan_frame_id: "saye/lidar_link"

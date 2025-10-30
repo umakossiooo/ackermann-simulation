@@ -37,6 +37,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /run/user:/run/user:ro
       - /home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2:/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2
+      - /home/studente/ackermann_sim/src/map_osm_converter:/root/colcon_ws/src/map_osm_converter:ro
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       - /usr/lib/wsl:/usr/lib/wsl:ro
 
