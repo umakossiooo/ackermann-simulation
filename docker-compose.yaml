@@ -25,6 +25,11 @@ services:
       - QT_X11_NO_MITSHM=1
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib:/usr/lib/wsl/drivers:${LD_LIBRARY_PATH}
+      - GALLIUM_DRIVER=d3d12
+      - MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - GZ_RENDER_ENGINE=vulkan
       - __GLX_VENDOR_LIBRARY_NAME=nvidia
       - __NV_PRIME_RENDER_OFFLOAD=1
       - GALLIUM_DRIVER=d3d12
