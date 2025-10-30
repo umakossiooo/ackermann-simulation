@@ -32,6 +32,7 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/gz
     ros-${ROS_DISTRO}-sdformat-urdf \
     ros-${ROS_DISTRO}-rclcpp \
     ros-${ROS_DISTRO}-builtin-interfaces \
+    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone and build your project

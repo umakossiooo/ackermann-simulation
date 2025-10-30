@@ -35,6 +35,8 @@ services:
       MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
       __GLX_VENDOR_LIBRARY_NAME: mesa
       QT_QPA_PLATFORM: xcb
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      ROS_DISABLE_SHARED_MEMORY: "1"
     volumes: *shared_volumes
 
   ackermann_sim_gpu:
@@ -60,6 +62,8 @@ services:
       __NV_PRIME_RENDER_OFFLOAD: "1"
       VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/nvidia_icd.json
       MESA_VK_WSI_PRESENT_MODE: mailbox
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      ROS_DISABLE_SHARED_MEMORY: "1"
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /run/user:/run/user:ro
