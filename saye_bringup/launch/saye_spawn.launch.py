@@ -22,6 +22,10 @@ def generate_launch_description():
 
     # Path to the SDF file in the description package
     sdf_file  =  os.path.join(pkg_project_description, 'models', 'saye', 'model.sdf')
+    urdf_file = os.path.join(pkg_project_description, 'urdf', 'saye.urdf')
+
+    with open(urdf_file, 'r') as urdf_handle:
+        robot_description_content = urdf_handle.read()
 
     # World selection (default: bari_world.sdf)
     world_arg = DeclareLaunchArgument(
@@ -46,6 +50,14 @@ def generate_launch_description():
         default_value='false',
         description='Launch Gazebo GUI (false for headless)'
     )
+
+    # Robot initial pose (map frame). Override at launch time as needed.
+    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='0.0', description='Robot X in meters')
+    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='0.0', description='Robot Y in meters')
+    robot_z_arg = DeclareLaunchArgument('robot_z', default_value='0.35', description='Robot Z in meters')
+    robot_R_arg = DeclareLaunchArgument('robot_R', default_value='0.0', description='Robot roll in radians')
+    robot_P_arg = DeclareLaunchArgument('robot_P', default_value='0.0', description='Robot pitch in radians')
+    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='0.0', description='Robot yaw in radians')
 
     # Setup to launch the simulator and Gazebo world
     gz_sim = IncludeLaunchDescription(
@@ -75,6 +87,15 @@ def generate_launch_description():
         }],
         output='screen'
     )
+    robot_state_publisher = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        parameters=[
+            {'robot_description': robot_description_content},
+            {'frame_prefix': 'saye/'}
+        ],
+        output='screen'
+    )
     # Spawn directly from the SDF file to avoid SDF->URDF conversion issues
     gz_spawn_entity = Node(
         package='ros_gz_sim',
@@ -83,14 +104,26 @@ def generate_launch_description():
         arguments=[
             '-file', sdf_file,
             '-name', 'saye',
-            '-z', '0.35'
+            '-x', LaunchConfiguration('robot_x'),
+            '-y', LaunchConfiguration('robot_y'),
+            '-z', LaunchConfiguration('robot_z'),
+            '-R', LaunchConfiguration('robot_R'),
+            '-P', LaunchConfiguration('robot_P'),
+            '-Y', LaunchConfiguration('robot_Y')
         ]
     )
     return LaunchDescription([
         world_arg,
         gz_args_arg,
         gui_arg,
+        robot_x_arg,
+        robot_y_arg,
+        robot_z_arg,
+        robot_R_arg,
+        robot_P_arg,
+        robot_Y_arg,
         gz_sim,
+        robot_state_publisher,
         gz_spawn_entity,
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Open RViz.'),

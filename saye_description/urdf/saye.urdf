@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<robot name="saye">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0.1371 0 -0.0115" rpy="-0.018 0 1.5707"/>
+      <geometry>
+        <mesh filename="package://saye_description/models/saye/meshes/BaseReduced.dae"/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.1371 0 -0.0115" rpy="-0.018 0 1.5707"/>
+      <geometry>
+        <mesh filename="package://saye_description/models/saye/meshes/TopReduced.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="front_left_wheel_steering_link"/>
+  <joint name="front_left_steering_joint" type="continuous">
+    <origin xyz="0.112 0.10 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="front_left_wheel_steering_link"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <link name="front_left_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 3.14159"/>
+      <geometry>
+        <mesh filename="package://saye_description/models/saye/meshes/Wheel.dae"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="front_left_wheel_joint" type="continuous">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="front_left_wheel_steering_link"/>
+    <child link="front_left_wheel_link"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <link name="front_right_wheel_steering_link"/>
+  <joint name="front_right_steering_joint" type="continuous">
+    <origin xyz="0.112 -0.10 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="front_right_wheel_steering_link"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <link name="front_right_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://saye_description/models/saye/meshes/Wheel.dae"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="front_right_wheel_joint" type="continuous">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="front_right_wheel_steering_link"/>
+    <child link="front_right_wheel_link"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <link name="rear_left_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 3.14159"/>
+      <geometry>
+        <mesh filename="package://saye_description/models/saye/meshes/Wheel.dae"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="rear_left_wheel_joint" type="continuous">
+    <origin xyz="-0.1135 0.10 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="rear_left_wheel_link"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <link name="rear_right_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://saye_description/models/saye/meshes/Wheel.dae"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="rear_right_wheel_joint" type="continuous">
+    <origin xyz="-0.1135 -0.10 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="rear_right_wheel_link"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+</robot>
