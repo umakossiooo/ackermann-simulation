@@ -172,7 +172,7 @@ You can also run the simulation using Docker, which ensures a consistent environ
 ### Using the Bari Map
 
 - The Bari 3D environment (from `src/map_osm_converter/models/bari_3d`) is included in a new world: `saye_description/worlds/bari_world.sdf` (upright orientation, yaw-aligned with the robot).
-- Default spawn is shifted slightly (`robot_y = -6.0`) so the car appears on an open lane; pass `robot_x`, `robot_y`, `robot_Y`, etc. at launch if you want to start elsewhere.
+- Default spawn is shifted to a Bari avenue (`robot_x = 66.0`, `robot_y = 275.0`, `robot_Y = 0.0`); pass `robot_x`, `robot_y`, `robot_Y`, etc. at launch if you want to start elsewhere.
 - Ensure Gazebo can discover the Bari model by appending the converter models path to `GZ_SIM_RESOURCE_PATH` (already set in Dockerfile and docker-compose). For local non-Docker use:
   ```bash
   export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:/your/path/ackermann_sim/src/map_osm_converter/models
