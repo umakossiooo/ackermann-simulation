@@ -6,6 +6,8 @@ ENV COLCON_WS=/root/colcon_ws
 ENV COLCON_WS_SRC=/root/colcon_ws/src
 ENV PYTHONWARNINGS="ignore:setup.py install is deprecated::setuptools.command.install"
 ENV XDG_RUNTIME_DIR=/tmp
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ENV ROS_DISABLE_SHARED_MEMORY=1
 
 ARG GZ_VERSION=harmonic
 
@@ -48,6 +50,11 @@ ENV ROS_PACKAGE_PATH=$ROS_PACKAGE_PATH:${COLCON_WS_SRC}/ackermann-vehicle-gzsim-
 
 # Auto source on shell startup
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /root/.bashrc && \
-    echo "source /root/colcon_ws/install/setup.bash" >> /root/.bashrc
+    echo "source /root/colcon_ws/install/setup.bash" >> /root/.bashrc && \
+    echo "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp" >> /root/.bashrc && \
+    echo "export ROS_DISABLE_SHARED_MEMORY=1" >> /root/.bashrc
+
+# Ensure non-interactive shells get the workspace overlay
+RUN echo "source /root/colcon_ws/install/setup.bash" >> /ros_entrypoint.sh
 
 CMD ["bash"]

@@ -12,11 +12,11 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='True')
     autostart = LaunchConfiguration('autostart', default='True')
-    map_yaml = LaunchConfiguration('map', default=os.path.join(pkg_saye_bringup, 'maps', 'map.yaml'))
+    map_yaml = LaunchConfiguration('map', default=os.path.join(pkg_saye_bringup, 'maps', 'bari_map.yaml'))
 
     declare_map_arg = DeclareLaunchArgument(
         'map',
-        default_value=os.path.join(pkg_saye_bringup, 'maps', 'map.yaml'),
+        default_value=os.path.join(pkg_saye_bringup, 'maps', 'bari_map.yaml'),
         description='Full path to a Nav2 map YAML file'
     )
 
