@@ -200,27 +200,24 @@ You can also run the simulation using Docker, which ensures a consistent environ
   ```
   You can start `rviz2` separately once the world is running.
 
+- Launch SLAM + Nav2
 #### SLAM + Nav2 on Bari
-1. Launch the simulator (terminal 1):
-   ```bash
-   ros2 launch saye_bringup saye_spawn.launch.py gui:=true
-   ```
-2. Start SLAM Toolbox (terminal 2):
-   ```bash
-   ros2 launch saye_bringup slam.launch.py
-   ```
-   Drive the vehicle around Bari until the `/map` looks complete in RViz.
-3. Save the map (still terminal 2, choose any destination):
-   ```bash
-   ros2 run nav2_map_server map_saver_cli -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
-   ```
-   This generates `bari_map.yaml` and `bari_map.pgm`.
-4. Launch Nav2 using the freshly saved map (terminal 3):
-   ```bash
-   ros2 launch saye_bringup navigation_bringup.launch.py \
-     map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map.yaml
-   ```
-   The bringup uses `/scan`, `/odom`, and `/imu` bridged from Gazebo, so navigation is immediately ready once AMCL converges.
+- Bring up Gazebo Harmonic, synchronous `slam_toolbox`, Nav2 (planner/controller only), map saver, and RViz in a single terminal:
+  ```bash
+  ros2 launch saye_bringup slam_navigation.launch.py gui:=true
+  ```
+  This launch ties into the Ackermann Gazebo setup, bridges `/scan`, `/odom`, `/imu`, and `/tf`, enables `use_sim_time`, and starts Nav2 without AMCL so you can explore while the map is generated.
+- Drive the vehicle using teleop or the Nav2 panel (Navigation shows `active`, Localization shows `inactive` by design while SLAM is providing `map→odom`). Keep exploring until RViz displays the environment you want captured.
+- Save the occupancy grid (from any container shell):
+  ```bash
+  ros2 run nav2_map_server map_saver_cli -f ~/maps/my_map
+  ```
+  The command produces `~/maps/my_map.pgm` and `~/maps/my_map.yaml`. Use the YAML file with `navigation_bringup.launch.py map:=~/maps/my_map.yaml` for future localization-only runs.
+- Switch to localization on the saved map:
+  ```bash
+  ros2 launch saye_bringup navigation_bringup.launch.py map:=~/maps/my_map.yaml
+  ```
+  AMCL will become active; give an initial pose in RViz, then send Nav2 goals as usual.
 
 ## Usage
 
