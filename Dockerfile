@@ -28,6 +28,7 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/gz
     ros-${ROS_DISTRO}-actuator-msgs \
     ros-${ROS_DISTRO}-image-transport \
     ros-${ROS_DISTRO}-nav2* \
+    ros-${ROS_DISTRO}-nav2-rviz-plugins \
     ros-${ROS_DISTRO}-teleop-twist-keyboard \
     ros-${ROS_DISTRO}-robot-state-publisher \
     ros-${ROS_DISTRO}-behaviortree-cpp-v3 \

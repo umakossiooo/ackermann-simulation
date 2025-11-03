@@ -115,7 +115,7 @@ You can also run the simulation using Docker, which ensures a consistent environ
 1. Clone the repository:
    ```bash
    mkdir -p ackermann_sim/src && cd ackermann_sim/src
-   git clone https://github.com/alitekes1/ackermann-vehicle-gzsim-ros2
+   git clone https://github.com/umakossiooo/ackermann-simulation.git
    cd ackermann-vehicle-gzsim-ros2
    ```
 
