@@ -211,13 +211,13 @@ You can also run the simulation using Docker, which ensures a consistent environ
 - Save the occupancy grid back into the shared workspace path (so it is visible on the host too):
   ```bash
   ros2 run nav2_map_server map_saver_cli \
-    -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/my_map
+    -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
   ```
-  This writes `my_map.pgm` and `my_map.yaml` into `saye_bringup/maps/` (both inside the container and on the host workspace). Use the YAML file with `navigation_bringup.launch.py map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/my_map.yaml` for future localization-only runs.
+  This writes `bari_map.pgm` and `bari_map.yaml` into `saye_bringup/maps/` (both inside the container and on the host workspace). Use the YAML file with `navigation_bringup.launch.py map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map.yaml` for future localization-only runs.
 - Switch to localization on the saved map:
   ```bash
   ros2 launch saye_bringup navigation_bringup.launch.py \
-    map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/my_map.yaml
+    map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map.yaml
   ```
   AMCL will become active; give an initial pose in RViz, then send Nav2 goals as usual.
 
