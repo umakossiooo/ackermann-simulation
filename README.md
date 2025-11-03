@@ -208,14 +208,16 @@ You can also run the simulation using Docker, which ensures a consistent environ
   ```
   This launch ties into the Ackermann Gazebo setup, bridges `/scan`, `/odom`, `/imu`, and `/tf`, enables `use_sim_time`, and starts Nav2 without AMCL so you can explore while the map is generated.
 - Drive the vehicle using teleop or the Nav2 panel (Navigation shows `active`, Localization shows `inactive` by design while SLAM is providing `map→odom`). Keep exploring until RViz displays the environment you want captured.
-- Save the occupancy grid (from any container shell):
+- Save the occupancy grid back into the shared workspace path (so it is visible on the host too):
   ```bash
-  ros2 run nav2_map_server map_saver_cli -f ~/maps/my_map
+  ros2 run nav2_map_server map_saver_cli \
+    -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/my_map
   ```
-  The command produces `~/maps/my_map.pgm` and `~/maps/my_map.yaml`. Use the YAML file with `navigation_bringup.launch.py map:=~/maps/my_map.yaml` for future localization-only runs.
+  This writes `my_map.pgm` and `my_map.yaml` into `saye_bringup/maps/` (both inside the container and on the host workspace). Use the YAML file with `navigation_bringup.launch.py map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/my_map.yaml` for future localization-only runs.
 - Switch to localization on the saved map:
   ```bash
-  ros2 launch saye_bringup navigation_bringup.launch.py map:=~/maps/my_map.yaml
+  ros2 launch saye_bringup navigation_bringup.launch.py \
+    map:=/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/my_map.yaml
   ```
   AMCL will become active; give an initial pose in RViz, then send Nav2 goals as usual.
 

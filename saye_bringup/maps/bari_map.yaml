@@ -1,7 +1,7 @@
 image: bari_map.pgm
 mode: trinary
 resolution: 0.050
-origin: [-10.944, -54.818, 0]
+origin: [-14.727, -53.241, 0]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.196
