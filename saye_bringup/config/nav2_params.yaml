@@ -328,12 +328,14 @@ planner_server:
     planner_plugins: ["GridBased", "SmacPlannerHybrid"]
     costmap_update_timeout: 1.0
     
+    # --- DIJKSTRA PLANNER (Grid-based) ---
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 1.0
-      use_astar: false
+      use_astar: false # just chnage to true to use the hybrid A*
       allow_unknown: true
     
+    # --- HYBRID-A* PLANNER (Ackermann) ---
     SmacPlannerHybrid:
       plugin: "nav2_smac_planner::SmacPlannerHybrid"
       downsample_costmap: false
