@@ -7,7 +7,7 @@ Minimal ROS 2/Gazebo Harmonic setup for an Ackermann car with IMU, LiDAR, camera
 ## Requirements
 - ROS 2 Jazzy (or Humble) with Nav2, RViz2, and `ros-gz`
 - Gazebo Sim Harmonic
-- Optional: Docker, Docker Compose, NVIDIA Container Toolkit for GPU acceleration
+- Optional: Docker, Docker Compose
 
 ## Local Setup
 - Install Gazebo ↔ ROS bridge packages (once):
@@ -17,7 +17,7 @@ Minimal ROS 2/Gazebo Harmonic setup for an Ackermann car with IMU, LiDAR, camera
 - Create a workspace and clone the repo:
   ```bash
   mkdir -p ~/ackermann_sim/src && cd ~/ackermann_sim/src
-  git clone https://github.com/alitekes1/ackermann-vehicle-gzsim-ros2
+  git clone https://github.com/umakossiooo/ackermann-simulation.git
   cd ..
   ```
 - Build and source the overlay:
@@ -79,6 +79,10 @@ ros2 run nav2_map_server map_saver_cli \
   ```bash
   docker compose up --build ackermann_sim
   ```
+- Clean up orphan containers (if you see warnings about removed services):
+  ```bash
+  docker compose down --remove-orphans
+  ```
 - Open a shell inside the container:
   ```bash
   docker compose exec ackermann_sim bash
@@ -91,7 +95,4 @@ ros2 run nav2_map_server map_saver_cli \
   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
   export ROS_DISABLE_SHARED_MEMORY=1
   ```
-- Use the same launch/teleop/SLAM/Nav2 commands as in the local section (paths already set inside the container). Switch to the GPU profile only if your host supports it:
-  ```bash
-  docker compose --profile gpu up --build ackermann_sim_gpu
-  ```
+- Use the same launch/teleop/SLAM/Nav2 commands as in the local section (paths already set inside the container).
