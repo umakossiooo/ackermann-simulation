@@ -68,34 +68,41 @@ class AckermannCityEnv(Node):
         """Reset the environment and return initial observation.
         
         Returns:
-            Initial observation array
+            Initial observation array (zero observation for minimal implementation)
         """
         self.get_logger().info("Resetting environment")
-        # TODO: Implement reset logic (spawn robot, reset state)
-        return np.zeros(720)  # Placeholder: 720 scan samples
+        # Reset state storage
+        self.latest_scan = None
+        self.latest_odom = None
+        # Return zero observation (720 scan samples)
+        return np.zeros(720, dtype=np.float32)
     
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict]:
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         """Execute one step in the environment.
         
         Args:
             action: Action array [linear_velocity, angular_velocity]
             
         Returns:
-            Tuple of (observation, reward, done, info)
+            Tuple of (observation, reward, terminated, truncated, info)
         """
-        # Publish control command
+        # Publish control command to /cmd_vel
+        # Note: Steering is handled internally by AckermannSteering plugin via angular.z
         cmd = Twist()
         cmd.linear.x = float(action[0])
         cmd.angular.z = float(action[1])
         self.cmd_vel_pub.publish(cmd)
         
-        # TODO: Get observation, compute reward, check done condition
-        observation = np.zeros(720)  # Placeholder
+        # Get observation from sensors
+        observation = self.get_observation()
+        
+        # Minimal implementation: return zero reward, not terminated, not truncated
         reward = 0.0
-        done = False
+        terminated = False
+        truncated = False
         info = {}
         
-        return observation, reward, done, info
+        return observation, reward, terminated, truncated, info
     
     def get_observation(self) -> np.ndarray:
         """Get current observation from sensors.
