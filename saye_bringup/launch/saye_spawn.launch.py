@@ -5,7 +5,6 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
-from launch.actions import SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -63,16 +62,6 @@ def generate_launch_description():
     robot_P_arg = DeclareLaunchArgument('robot_P', default_value='0.0', description='Robot pitch in radians')
     robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='-1.5004', description='Robot yaw in radians')
 
-    # Setup to launch the simulator and Gazebo world
-    gui_config_env = SetEnvironmentVariable(
-        'GZ_GUI_CONFIG',
-        PathJoinSubstitution([
-            pkg_project_description,
-            'gui',
-            'bari_default_gui.config'
-        ])
-    )
-
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
@@ -129,7 +118,6 @@ def generate_launch_description():
         world_arg,
         gz_args_arg,
         gui_arg,
-        gui_config_env,
         robot_x_arg,
         robot_y_arg,
         robot_z_arg,
