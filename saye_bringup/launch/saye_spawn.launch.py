@@ -5,6 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
+from launch.actions import TimerAction, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -52,15 +53,19 @@ def generate_launch_description():
     )
 
     # Robot initial pose (map frame). Override at launch time as needed.
-    # Bari mesh shifted so the origin sits on a street; spawn at (0,0) by default.
-    # Default pose drops the car on Via Andrea da Bari (central street) using
-    # coordinates exported by osm_city_pipeline (spawn_point_1078).
-    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='171.28', description='Robot X in meters')
-    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='13.08', description='Robot Y in meters')
-    robot_z_arg = DeclareLaunchArgument('robot_z', default_value='0.35', description='Robot Z in meters')
+    # Default spawn position is on a street in the city center.
+    # Current default: Via Dante Alighieri (spawn_point_173) - tertiary road near city center
+    # Coordinates exported by osm_city_pipeline from maps/bari_spawn_points.yaml
+    # To find other spawn points, run:
+    #   cd osm_city_pipeline && python3 scripts/find_central_street_near_buildings.py maps/bari_spawn_points.yaml 5
+    # Or check spawn points: python3 scripts/osm-city spawn-pose --spawn-file maps/bari_spawn_points.yaml --id <ID>
+    # To override spawn position at launch: robot_x:=<x> robot_y:=<y> robot_Y:=<yaw>
+    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='169.37', description='Robot X in meters (east coordinate)')
+    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='0.21', description='Robot Y in meters (north coordinate)')
+    robot_z_arg = DeclareLaunchArgument('robot_z', default_value='0.35', description='Robot Z in meters (height above ground)')
     robot_R_arg = DeclareLaunchArgument('robot_R', default_value='0.0', description='Robot roll in radians')
     robot_P_arg = DeclareLaunchArgument('robot_P', default_value='0.0', description='Robot pitch in radians')
-    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='-1.5004', description='Robot yaw in radians')
+    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='0.0796', description='Robot yaw in radians (orientation)')
 
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -114,6 +119,29 @@ def generate_launch_description():
             '-Y', LaunchConfiguration('robot_Y')
         ]
     )
+
+    # Set camera pose using gz service after Gazebo initializes
+    # Calculate camera position based on robot spawn: 8m behind, 4m above
+    # Robot: x=169.37, y=0.21, z=0.35 -> Camera: x=161.37, y=0.21, z=4.35
+    # Orientation: looking at robot (pitch down 0.4 rad, yaw matches robot 0.0796 rad)
+    delayed_camera_setup = TimerAction(
+        period=4.0,  # Wait 4 seconds for Gazebo and robot to spawn
+        actions=[
+            ExecuteProcess(
+                cmd=[
+                    'gz', 'service',
+                    '-s', '/gui/move_to/pose',
+                    '--reqtype', 'gz.msgs.GUICamera',
+                    '--reptype', 'gz.msgs.Boolean',
+                    '--timeout', '2000',
+                    '--req', 'pose: {position: {x: 161.37, y: 0.21, z: 4.35}, orientation: {x: -0.2706, y: 0.2706, z: 0.6533, w: 0.6533}}'
+                ],
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('gui'))
+            )
+        ]
+    )
+
     return LaunchDescription([
         world_arg,
         gz_args_arg,
@@ -130,5 +158,6 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Open RViz.'),
         bridge,
-        rviz
+        rviz,
+        delayed_camera_setup
     ])
