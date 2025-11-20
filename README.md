@@ -64,11 +64,64 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
 
 ### Save the Bari occupancy grid
-Write the current slam_toolbox map back into the workspace for future Nav2 runs.
+**IMPORTANT:** You must run this command **WHILE SLAM is running** (e.g., while `slam.launch.py` or `slam_navigation.launch.py` is active).
+
+**Prerequisites:**
+1. **Verify SLAM is running and publishing `/map`:**
+   ```bash
+   ros2 topic list | grep /map
+   ros2 topic hz /map  # Should show publication rate
+   ```
+   If `/map` doesn't appear, SLAM may not be running or the robot needs to move first.
+
+2. **Install dependencies (in Docker container):**
+   ```bash
+   apt-get update && apt-get install -y python3-numpy python3-pil python3-yaml
+   ```
+
+**Method 1: Using the provided script (Recommended)**
+```bash
+# In Docker container, use the colcon_ws path (volume is mounted there):
+python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/save_map.py \
+  /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
+```
+
+**Method 2: Using the service (if map_saver_server is running)**
+First check if the service exists:
+```bash
+ros2 service list | grep map_saver
+```
+
+If you see `/map_saver/save_map`, then call it with the correct format:
+```bash
+ros2 service call /map_saver/save_map nav2_msgs/srv/SaveMap \
+  "{map_url: '/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map'}"
+```
+
+**Note:** The `map_url` field should be a string, not a nested structure. If the service returns `result: False`, check:
+1. The `/map` topic is being published: `ros2 topic list | grep /map`
+2. The map_saver node is active (check lifecycle state)
+3. The directory exists and is writable
+
+**Method 3: Using map_saver_cli (may require lifecycle activation)**
 ```bash
 ros2 run nav2_map_server map_saver_cli \
-  -f ~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
+  -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
 ```
+
+**Troubleshooting:**
+- **If `/map` topic doesn't exist:**
+  1. Make sure SLAM launch is running: `ros2 launch saye_bringup slam.launch.py gui:=true`
+  2. Wait 10-20 seconds for SLAM to initialize
+  3. Move the robot a bit (SLAM needs movement to start mapping)
+  4. Check SLAM logs for errors: look for "slam_toolbox" in the terminal output
+  5. Verify `/scan` topic exists: `ros2 topic list | grep scan`
+  
+- **If you get "Failed to spin map subscription":**
+  - The `map_saver_cli` tool has QoS mismatch issues. Use Method 1 (the script) instead.
+  
+- **If script says "Missing required dependencies":**
+  - Install: `apt-get update && apt-get install -y python3-numpy python3-pil python3-yaml`
 
 ## Docker Workflow (optional)
 - Allow the container to use your display (WSLg/X11):

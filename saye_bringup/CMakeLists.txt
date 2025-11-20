@@ -16,6 +16,7 @@ install(
 
 install(PROGRAMS
   scripts/odom_to_tf.py
+  scripts/save_map.py
   DESTINATION lib/${PROJECT_NAME}
 )
   
