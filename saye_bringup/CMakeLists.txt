@@ -13,6 +13,11 @@ install(
     config
   DESTINATION share/${PROJECT_NAME}/
 )
+
+install(PROGRAMS
+  scripts/odom_to_tf.py
+  DESTINATION lib/${PROJECT_NAME}
+)
   
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

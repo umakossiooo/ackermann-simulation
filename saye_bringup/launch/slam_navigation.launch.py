@@ -2,7 +2,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -135,11 +135,25 @@ def generate_launch_description():
         output='screen'
     )
 
-    world_to_odom_tf = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='world_to_odom_tf',
-        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'world']
+    # TF chain: map -> odom (from SLAM) -> saye/base_link (from odometry)
+    # The odometry publisher should publish odom->saye/base_link, but if it doesn't,
+    # we need to extract it from the odometry message
+    # Try to use the installed script first, fallback to source
+    installed_script = os.path.join(bringup_pkg, '..', '..', 'lib', 'saye_bringup', 'odom_to_tf.py')
+    source_script = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(bringup_pkg))),
+        'src', 'ackermann-vehicle-gzsim-ros2', 'saye_bringup', 'scripts', 'odom_to_tf.py'
+    )
+    # Use source script if installed doesn't exist
+    odom_script = installed_script if os.path.exists(installed_script) else source_script
+    odom_to_tf_node = ExecuteProcess(
+        cmd=['python3', odom_script,
+             '--ros-args',
+             '-p', 'base_frame:=saye',  # Publish odom -> saye (robot_state_publisher handles saye -> saye/base_link)
+             '-p', 'odom_frame:=odom',
+             '-p', 'use_sim_time:=true'],  # Always true for simulation
+        name='odom_to_tf',
+        output='screen'
     )
 
     ld = LaunchDescription()
@@ -152,10 +166,10 @@ def generate_launch_description():
     ld.add_action(declare_rviz)
     ld.add_action(spawn_sim)
     ld.add_action(slam_launch)
+    ld.add_action(odom_to_tf_node)  # Publish odom->saye/base_link from odometry messages
     ld.add_action(nav2_launch)
     ld.add_action(map_saver)
     ld.add_action(map_saver_lifecycle)
     ld.add_action(rviz_node)
-    ld.add_action(world_to_odom_tf)
 
     return ld

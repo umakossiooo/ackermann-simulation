@@ -332,8 +332,9 @@ planner_server:
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 1.0
-      use_astar: false # just chnage to true to use the hybrid A*
+      use_astar: false # just change to true to use the hybrid A*
       allow_unknown: true
+      max_cost: 252  # Allow planning through unknown space (value 255 is lethal, 254 is inscribed, 253 is circumscribed)
     
     # --- HYBRID-A* PLANNER (Ackermann) ---
     SmacPlannerHybrid:

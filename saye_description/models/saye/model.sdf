@@ -735,8 +735,9 @@
 
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
       <odom_frame>odom</odom_frame>
-      <robot_base_frame>saye</robot_base_frame>
-      <odom_topic>odom</odom_topic> 
+      <robot_base_frame>saye/base_link</robot_base_frame>
+      <odom_topic>odom</odom_topic>
+      <publish_tf>true</publish_tf>
       <dimensions>3</dimensions>
     </plugin>
 
