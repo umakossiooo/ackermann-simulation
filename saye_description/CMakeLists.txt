@@ -21,6 +21,7 @@ install(DIRECTORY
   worlds
   urdf
   hooks
+  gui
   DESTINATION share/${PROJECT_NAME}/
 )
 

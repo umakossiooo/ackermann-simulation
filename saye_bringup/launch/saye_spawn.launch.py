@@ -5,6 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
+from launch.actions import SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -53,14 +54,25 @@ def generate_launch_description():
 
     # Robot initial pose (map frame). Override at launch time as needed.
     # Bari mesh shifted so the origin sits on a street; spawn at (0,0) by default.
-    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='0.0', description='Robot X in meters')
-    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='0.0', description='Robot Y in meters')
+    # Default pose drops the car on Via Andrea da Bari (central street) using
+    # coordinates exported by osm_city_pipeline (spawn_point_1078).
+    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='171.28', description='Robot X in meters')
+    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='13.08', description='Robot Y in meters')
     robot_z_arg = DeclareLaunchArgument('robot_z', default_value='0.35', description='Robot Z in meters')
     robot_R_arg = DeclareLaunchArgument('robot_R', default_value='0.0', description='Robot roll in radians')
     robot_P_arg = DeclareLaunchArgument('robot_P', default_value='0.0', description='Robot pitch in radians')
-    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='0.0', description='Robot yaw in radians')
+    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='-1.5004', description='Robot yaw in radians')
 
     # Setup to launch the simulator and Gazebo world
+    gui_config_env = SetEnvironmentVariable(
+        'GZ_GUI_CONFIG',
+        PathJoinSubstitution([
+            pkg_project_description,
+            'gui',
+            'bari_default_gui.config'
+        ])
+    )
+
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
@@ -117,6 +129,7 @@ def generate_launch_description():
         world_arg,
         gz_args_arg,
         gui_arg,
+        gui_config_env,
         robot_x_arg,
         robot_y_arg,
         robot_z_arg,

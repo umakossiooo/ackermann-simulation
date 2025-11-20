@@ -2,7 +2,7 @@
 
 Minimal ROS 2/Gazebo Harmonic setup for an Ackermann car with IMU, LiDAR, cameras, SLAM, and Nav2 already wired together.
 
-**Default map:** The Bari world (`saye_description/worlds/bari_world.sdf`) and its 2D Nav2 map (`saye_bringup/maps/bari_map.yaml`) load by default. Override `map:=...` only if you saved a new map.
+**Default map:** The Bari world (`saye_description/worlds/bari_world.sdf`) and its 2D Nav2 map (`saye_bringup/maps/bari_map.yaml`) load by default. The vehicle now spawns on Via Andrea da Bari (city center), using coordinates exported by `osm_city_pipeline`. Override `map:=...` or the `robot_*` launch arguments only if you need a different location.
 
 ## Requirements
 - ROS 2 Jazzy (or Humble) with Nav2, RViz2, and `ros-gz`
