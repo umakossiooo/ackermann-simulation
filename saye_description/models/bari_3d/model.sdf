@@ -1,0 +1,28 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <!-- OSM-derived city model with detailed 3D mesh from OSM2World -->
+  <!-- Roads, buildings, terrain, and vegetation are all included in the mesh -->
+  <model name="bari_3d">
+    <static>true</static>
+    <pose>0 0 0 1.5708 0 0</pose>
+    <link name="bari_3d_link">
+      <!-- Road/lane visual: Uses OBJ materials/textures from OSM2World for realistic colors -->
+      <!-- Visual name contains "road" and "lane" keywords for fleet_drl coordinate extractor -->
+      <visual name="road_lane_street_visual">
+        <geometry>
+          <mesh>
+            <uri>model://bari_3d/meshes/bari_3d.obj</uri>
+          </mesh>
+        </geometry>
+        <!-- Material not specified - uses OBJ's MTL file materials for realistic textures -->
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://bari_3d/meshes/bari_3d.obj</uri>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -1,44 +1,38 @@
-<?xml version="1.0"?>
-<sdf version="1.8">
+<?xml version="1.0" ?>
+<sdf version="1.11">
   <world name="bari_world">
-    <gravity>0 0 -9.81</gravity>
-    <plugin
-      filename="gz-sim-physics-system"
-      name="gz::sim::systems::Physics">
+    <physics type="ode" name="default">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <gravity>0 0 -9.81</gravity>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>vulkan</render_engine>
     </plugin>
-    <plugin
-      filename="gz-sim-sensors-system"
-      name="gz::sim::systems::Sensors">
-      <render_engine>ogre2</render_engine>
-    </plugin>
-    <plugin
-      filename="gz-sim-scene-broadcaster-system"
-      name="gz::sim::systems::SceneBroadcaster">
-    </plugin>
-    <plugin
-      filename="gz-sim-user-commands-system"
-      name="gz::sim::systems::UserCommands">
-    </plugin>
-    <plugin filename="gz-sim-imu-system"
-        name="gz::sim::systems::Imu">
-    </plugin>
-
-    <!-- Bari city 3D model generated via map_osm_converter -->
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.7 0.7 1</background>
+      <shadows>true</shadows>
+    </scene>
     <include>
       <name>bari_3d</name>
-      <!-- Convert the OSM mesh (Y-up) into Gazebo's Z-up frame, rotate 90° around Z, and shift so the origin sits on an open street. -->
-      <pose>-66 -275 0 1.5708 0 1.5708</pose>
       <uri>model://bari_3d</uri>
+      <pose>0 0 0 1.5708 0 0</pose>
     </include>
-
-    <!-- Camera defaults to follow the spawned Ackermann chassis -->
     <gui fullscreen="0">
       <camera name="follow_camera">
         <pose>-8 0 4 0.4 0.6 0</pose>
         <view_controller>orbit</view_controller>
         <track_visual>saye::base_link::BaseVisual</track_visual>
       </camera>
+      <camera name="default">
+        <pose>0 0 50 0 -1.57 0</pose>
+        <view_controller>orbit</view_controller>
+      </camera>
     </gui>
-
   </world>
 </sdf>

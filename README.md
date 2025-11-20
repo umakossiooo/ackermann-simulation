@@ -26,7 +26,7 @@ Minimal ROS 2/Gazebo Harmonic setup for an Ackermann car with IMU, LiDAR, camera
   ```
 - Make sure Gazebo can find the Bari models (run per shell or add to `.bashrc`):
   ```bash
-  export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/:~/ackermann_sim/src/map_osm_converter/models
+  export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/
   export ROS_PACKAGE_PATH=$ROS_PACKAGE_PATH:~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/
   ```
 
@@ -96,3 +96,28 @@ ros2 run nav2_map_server map_saver_cli \
   export ROS_DISABLE_SHARED_MEMORY=1
   ```
 - Use the same launch/teleop/SLAM/Nav2 commands as in the local section (paths already set inside the container).
+
+## Updating the Bari World with `osm_city_pipeline`
+
+This stack now relies exclusively on the meshes committed under `saye_description`.
+To refresh the city model:
+
+1. `cd ~/ackermann_sim/src/osm_city_pipeline` and run
+   `./scripts/osm-city reset --osm-file maps/bari.osm` followed by
+   `./scripts/generate_enhanced_world.sh maps/bari.osm`. The script copies the
+   new `bari_world.sdf` and `models/bari_3d/` directly into
+   `../ackermann-vehicle-gzsim-ros2/saye_description/`.
+2. Rebuild inside the Ackermann container:
+   ```bash
+   docker compose exec ackermann_sim bash -lc '
+     source /opt/ros/jazzy/setup.bash &&
+     cd /root/colcon_ws &&
+     colcon build --symlink-install
+   '
+   ```
+3. Relaunch `ros2 launch saye_bringup saye_spawn.launch.py gui:=true` (or run
+   `gz sim /root/colcon_ws/install/saye_description/share/saye_description/worlds/bari_world.sdf`
+   to preview).
+
+No dependency on `map_osm_converter` remains; all assets come straight from the
+pipeline.
