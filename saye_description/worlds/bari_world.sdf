@@ -1,10 +1,10 @@
 <?xml version="1.0" ?>
 <sdf version="1.11">
   <world name="bari_world">
+    <gravity>0 0 -9.81</gravity>
     <physics type="ode" name="default">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
-      <gravity>0 0 -9.81</gravity>
     </physics>
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
@@ -25,13 +25,11 @@
     </include>
     <gui fullscreen="0">
       <camera name="user_camera">
-        <use_original_camera>false</use_original_camera>
-        <pose>161.37 0.21 4.35 0 0.4 0.0796</pose>
+        <pose>164.37 0.21 3.35 0 0.4 0.0796</pose>
         <view_controller>orbit</view_controller>
       </camera>
       <camera name="default">
-        <use_original_camera>false</use_original_camera>
-        <pose>161.37 0.21 4.35 0 0.4 0.0796</pose>
+        <pose>164.37 0.21 3.35 0 0.4 0.0796</pose>
         <view_controller>orbit</view_controller>
       </camera>
     </gui>

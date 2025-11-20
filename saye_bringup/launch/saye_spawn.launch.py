@@ -121,9 +121,10 @@ def generate_launch_description():
     )
 
     # Set camera pose using gz service after Gazebo initializes
-    # Calculate camera position based on robot spawn: 8m behind, 4m above
-    # Robot: x=169.37, y=0.21, z=0.35 -> Camera: x=161.37, y=0.21, z=4.35
-    # Orientation: looking at robot (pitch down 0.4 rad, yaw matches robot 0.0796 rad)
+    # Calculate camera position based on robot spawn: 5m behind, 3m above (closer view)
+    # Robot: x=169.37, y=0.21, z=0.35 -> Camera: x=164.37, y=0.21, z=3.35
+    # Orientation: looking at back of car (pitch down 0.4 rad, yaw 0.0796 rad to face car's back)
+    # Quaternion for roll=0, pitch=0.4, yaw=0.0796: (x=0.0, y=0.1987, z=0.0398, w=0.9794)
     delayed_camera_setup = TimerAction(
         period=4.0,  # Wait 4 seconds for Gazebo and robot to spawn
         actions=[
@@ -134,7 +135,7 @@ def generate_launch_description():
                     '--reqtype', 'gz.msgs.GUICamera',
                     '--reptype', 'gz.msgs.Boolean',
                     '--timeout', '2000',
-                    '--req', 'pose: {position: {x: 161.37, y: 0.21, z: 4.35}, orientation: {x: -0.2706, y: 0.2706, z: 0.6533, w: 0.6533}}'
+                    '--req', 'pose: {position: {x: 164.37, y: 0.21, z: 3.35}, orientation: {x: 0.0, y: 0.1987, z: 0.0398, w: 0.9794}}'
                 ],
                 output='screen',
                 condition=IfCondition(LaunchConfiguration('gui'))
