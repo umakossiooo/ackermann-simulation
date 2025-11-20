@@ -15,6 +15,7 @@ ARG GZ_VERSION=harmonic
 RUN apt-get update && apt-get install -y \
     wget git curl gnupg2 lsb-release ca-certificates \
     build-essential python3-pip \
+    python3-numpy python3-pil python3-yaml \
     mesa-utils libglvnd0 vulkan-tools libx11-dev libxext-dev libgl1 libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -36,6 +37,7 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/gz
     ros-${ROS_DISTRO}-rclcpp \
     ros-${ROS_DISTRO}-builtin-interfaces \
     ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
+    ros-${ROS_DISTRO}-slam-toolbox \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone and build your project

@@ -74,9 +74,9 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
    ```
    If `/map` doesn't appear, SLAM may not be running or the robot needs to move first.
 
-2. **Install dependencies (in Docker container):**
+2. **Dependencies:** The Docker image includes all required packages (`python3-numpy`, `python3-pil`, `python3-yaml`, `slam-toolbox`). If you're running locally, install them:
    ```bash
-   apt-get update && apt-get install -y python3-numpy python3-pil python3-yaml
+   sudo apt-get install -y python3-numpy python3-pil python3-yaml ros-${ROS_DISTRO}-slam-toolbox
    ```
 
 **Method 1: Using the provided script (Recommended)**
