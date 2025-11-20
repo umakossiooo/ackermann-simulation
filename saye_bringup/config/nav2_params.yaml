@@ -325,13 +325,13 @@ map_saver:
 planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
-    planner_plugins: ["GridBased", "SmacPlannerHybrid"]
+    planner_plugins: ["SmacPlannerHybrid"]  # Only use SmacPlannerHybrid (better for Ackermann, GridBased has bugs)
     costmap_update_timeout: 1.0
     
     # --- DIJKSTRA PLANNER (Grid-based) ---
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 1.0
+      tolerance: 2.0  # Increased tolerance to handle planning edge cases
       use_astar: false # just change to true to use the hybrid A*
       allow_unknown: true
       max_cost: 252  # Allow planning through unknown space (value 255 is lethal, 254 is inscribed, 253 is circumscribed)
@@ -341,7 +341,7 @@ planner_server:
       plugin: "nav2_smac_planner::SmacPlannerHybrid"
       downsample_costmap: false
       downsampling_factor: 1
-      tolerance: 0.25
+      tolerance: 0.5  # Increased tolerance for better planning success
       allow_unknown: true
       max_iterations: 1000000
       max_on_approach_iterations: 1000
