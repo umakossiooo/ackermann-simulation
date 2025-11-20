@@ -1,0 +1,28 @@
+# Delivery points configuration for DRL training
+# These are target locations the robot should navigate to
+
+delivery_points:
+  - id: 0
+    name: "delivery_point_0"
+    position:
+      east: 169.37
+      north: 0.21
+      up: 0.0
+    description: "Default spawn location"
+  
+  - id: 1
+    name: "delivery_point_1"
+    position:
+      east: 200.0
+      north: 50.0
+      up: 0.0
+    description: "Example delivery point 1"
+  
+  - id: 2
+    name: "delivery_point_2"
+    position:
+      east: 150.0
+      north: -30.0
+      up: 0.0
+    description: "Example delivery point 2"
+

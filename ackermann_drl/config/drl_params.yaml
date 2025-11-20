@@ -1,0 +1,41 @@
+# DRL training parameters
+
+drl:
+  # Environment parameters
+  env:
+    max_episode_steps: 1000
+    reward_timeout: -0.01
+    reward_collision: -10.0
+    reward_goal_reached: 10.0
+    reward_distance: 0.1
+    
+  # Action space
+  action:
+    max_linear_velocity: 2.0  # m/s
+    max_angular_velocity: 1.0  # rad/s
+    min_linear_velocity: -2.0  # m/s (reverse)
+    min_angular_velocity: -1.0  # rad/s
+    
+  # Observation space
+  observation:
+    scan_samples: 720  # Number of LiDAR samples
+    use_odom: true
+    use_imu: false
+    normalize_scan: true
+    scan_max_range: 50.0  # meters
+    
+  # Training parameters
+  training:
+    total_timesteps: 1000000
+    learning_rate: 3e-4
+    batch_size: 64
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    
+  # Robot parameters
+  robot:
+    wheel_base: 0.2255  # meters
+    wheel_separation: 0.2  # meters
+    max_steering_angle: 0.4  # radians
+
