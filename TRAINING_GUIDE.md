@@ -44,7 +44,6 @@ source /root/colcon_ws/install/setup.bash
 # Note: world:=bari_world.sdf is optional (it's the default)
 ros2 launch saye_bringup saye_spawn.launch.py gui:=false
 # Keep this terminal open - Gazebo runs here
-# This terminal will show Gazebo output and must stay running
 ```
 
 **Option C: With GUI (if X11 forwarding available)**
@@ -58,28 +57,22 @@ ros2 launch saye_bringup saye_spawn.launch.py gui:=true
 
 ### Step 3: Verify ROS Topics (in training terminal)
 
-**⚠️ IMPORTANT:** Gazebo MUST be running (from Step 2) before checking topics!
-
 ```bash
 # Enter container in NEW terminal for training
 docker compose exec ackermann_sim bash
 source /opt/ros/jazzy/setup.bash
 source /root/colcon_ws/install/setup.bash
 
-# Check topics are available (Gazebo must be running in background or another terminal!)
+# Check topics are available (Gazebo must be running!)
 ros2 topic list
 # Should see: /cmd_vel, /odom, /scan, etc.
 
-# Verify topics have data (wait a few seconds after Gazebo starts for data to appear)
-# If nothing shows, wait 5-10 seconds and try again - Gazebo needs time to initialize
-ros2 topic info /odom  # Check if topic has publishers
-ros2 topic hz /odom  # Check publication rate (Ctrl+C to stop)
-ros2 topic echo /odom --once  # Should show odometry data (may take a few seconds)
+# Verify topics have data
+ros2 topic echo /odom --once  # Should show odometry data
 ros2 topic echo /scan --once  # Should show laser scan data
 ```
 
 **⚠️ If topics are empty or missing, Gazebo is not running!**
-**Make sure `ros2 launch saye_bringup saye_spawn.launch.py` is running (either in background or another terminal).**
 
 ### Step 4: Start Training (in the same terminal as Step 3)
 
