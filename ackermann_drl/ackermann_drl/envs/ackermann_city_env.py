@@ -108,9 +108,14 @@ class AckermannCityEnv(Node):
         self.prev_distance_to_goal: Optional[float] = None
         
         # Executor for spinning (minimal - single thread)
-        # Use the node's context for the executor
-        self.executor = SingleThreadedExecutor(context=self.get_clock().context)
-        self.executor.add_node(self)
+        # Create executor - it will use the default context from rclpy.init()
+        try:
+            self.executor = SingleThreadedExecutor()
+            self.executor.add_node(self)
+        except Exception as e:
+            self.get_logger().error(f"Failed to create executor: {e}")
+            # Fallback: executor will be None, but we can still use spin_once via rclpy
+            self.executor = None
         
         self.get_logger().info("AckermannCityEnv initialized (Docker-ready)")
     
@@ -130,7 +135,11 @@ class AckermannCityEnv(Node):
         Args:
             timeout_sec: Timeout for spinning
         """
-        self.executor.spin_once(timeout_sec=timeout_sec)
+        if self.executor is not None:
+            self.executor.spin_once(timeout_sec=timeout_sec)
+        else:
+            # Fallback: use rclpy.spin_once if executor is None
+            rclpy.spin_once(self, timeout_sec=timeout_sec)
     
     def reset(self) -> np.ndarray:
         """Reset the environment and return initial observation.
