@@ -88,7 +88,14 @@ class RewardLoggingCallback(BaseCallback):
                 print(f"  Time:      {reward_sums['penalty_time']/count:+.4f}")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)
                 print(f"  Total:     {total:+.4f}")
-                print(f"  Diagnostics: scan={has_scan}, odom={has_odom}, goal={has_goal}, road_dist={road_dist:.2f}m, min_lidar={min_lidar:.2f}m\n")
+                # Get additional diagnostics
+                velocity = first_info.get('velocity', -1.0) if 'velocity' in first_info else -1.0
+                distance_to_goal = first_info.get('distance_to_goal', -1.0) if 'distance_to_goal' in first_info else -1.0
+                print(f"  Diagnostics: scan={has_scan}, odom={has_odom}, goal={has_goal}, road_dist={road_dist:.2f}m, min_lidar={min_lidar:.2f}m")
+                if velocity >= 0:
+                    print(f"  Car velocity: {velocity:.2f} m/s, distance_to_goal: {distance_to_goal:.2f}m\n")
+                else:
+                    print()
         
         return True
 

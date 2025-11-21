@@ -554,6 +554,10 @@ class AckermannCityEnv(Node):
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
+            else:
+                # First step after reset - initialize prev_distance
+                # No progress reward on first step, but set it for next step
+                reward_info['reward_progress'] = 0.0
             
             # Update previous distance (even if None, set it now)
             self.prev_distance_to_goal = current_distance
