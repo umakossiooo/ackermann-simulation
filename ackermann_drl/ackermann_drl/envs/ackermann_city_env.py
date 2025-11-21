@@ -105,7 +105,7 @@ class AckermannCityEnv(Node):
         # Note: LiDAR might not detect low obstacles (sidewalks) perfectly, so we use a more aggressive threshold
         # Also check road distance as a proxy for collision with curbs/sidewalks
         self.collision_threshold = 0.4  # Consider collision if obstacle within 0.4m
-        self.offroad_collision_threshold = 0.5  # If off-road by more than this, consider it a collision with sidewalk
+        self.offroad_collision_threshold = 0.3  # If off-road by more than this, consider it a collision with sidewalk/curb
         
         # Track previous distance for progress calculation
         self.prev_distance_to_goal: Optional[float] = None

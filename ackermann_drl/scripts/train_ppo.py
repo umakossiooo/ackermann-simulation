@@ -95,7 +95,7 @@ class RewardLoggingCallback(BaseCallback):
                 is_collision_lidar = first_info.get('is_collision_lidar', False)
                 is_collision_offroad = first_info.get('is_collision_offroad', False)
                 collision_threshold = 0.4  # From ackermann_city_env
-                offroad_collision_threshold = 0.5  # From ackermann_city_env
+                offroad_collision_threshold = 0.3  # From ackermann_city_env
                 print(f"  Diagnostics: scan={has_scan}, odom={has_odom}, goal={has_goal}, road_dist={road_dist:.2f}m, min_lidar={min_lidar:.2f}m")
                 print(f"  Collision: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad}), min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m), road_dist={road_dist:.2f}m (offroad_threshold={offroad_collision_threshold}m)")
                 if velocity >= 0:
