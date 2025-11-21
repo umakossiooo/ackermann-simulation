@@ -104,8 +104,8 @@ class AckermannCityEnv(Node):
         # Collision detection threshold (meters)
         # Note: LiDAR might not detect low obstacles (sidewalks) perfectly, so we use a more aggressive threshold
         # Also check road distance as a proxy for collision with curbs/sidewalks
-        self.collision_threshold = 0.4  # Consider collision if obstacle within 0.4m
-        self.offroad_collision_threshold = 0.3  # If off-road by more than this, consider it a collision with sidewalk/curb
+        self.collision_threshold = 0.5  # Consider collision if obstacle within 0.5m (increased for better sidewalk detection)
+        self.offroad_collision_threshold = 0.2  # If off-road by more than this, consider it a collision with sidewalk/curb (lowered for better detection)
         
         # Track previous distance for progress calculation
         self.prev_distance_to_goal: Optional[float] = None
@@ -614,10 +614,20 @@ class AckermannCityEnv(Node):
         # IMPORTANT: Always check collisions if we have ANY sensor data, even if flags are False
         is_colliding_lidar = False
         is_colliding_offroad = False
+        min_lidar_dist = -1.0
+        road_distance = -1.0
         
         # Check LiDAR collision - use latest_scan directly, not has_scan flag
         if self.latest_scan is not None:
             is_colliding_lidar = self.is_collision()
+            # Get min LiDAR distance for logging
+            try:
+                ranges = np.array(self.latest_scan.ranges)
+                valid_ranges = ranges[np.isfinite(ranges)]
+                if len(valid_ranges) > 0:
+                    min_lidar_dist = float(np.min(valid_ranges))
+            except:
+                pass
         
         # Also check if severely off-road (likely hitting sidewalk/curb)
         # Use latest_odom directly, not has_odom flag
@@ -625,20 +635,20 @@ class AckermannCityEnv(Node):
             road_distance = self.get_road_distance()
             if road_distance > self.offroad_collision_threshold:
                 is_colliding_offroad = True
-                self.get_logger().warn(f"Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m")
+                self.get_logger().warn(f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m")
         
         is_colliding = is_colliding_lidar or is_colliding_offroad
         
         if is_colliding:
             reward += self.reward_collision_penalty
             reward_info['penalty_collision'] = self.reward_collision_penalty
-            # Log collision for debugging
+            # Log collision with detailed information
             if is_colliding_lidar:
-                self.get_logger().warn(f"LiDAR collision detected! Applying penalty: {self.reward_collision_penalty}")
+                self.get_logger().warn(f"[COLLISION] LiDAR collision detected! min_distance={min_lidar_dist:.3f}m <= threshold={self.collision_threshold}m | Penalty: {self.reward_collision_penalty}")
             if is_colliding_offroad:
-                self.get_logger().warn(f"Off-road collision detected! Applying penalty: {self.reward_collision_penalty}")
-            # DEBUG: Verify reward_info is set correctly
-            self.get_logger().debug(f"DEBUG: reward_info['penalty_collision'] = {reward_info['penalty_collision']}, is_colliding = {is_colliding}")
+                self.get_logger().warn(f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m | Penalty: {self.reward_collision_penalty}")
+            # Always log when collision penalty is applied
+            self.get_logger().info(f"[REWARD] Collision penalty applied: {self.reward_collision_penalty} (lidar={is_colliding_lidar}, offroad={is_colliding_offroad})")
         else:
             reward_info['penalty_collision'] = 0.0
         
@@ -646,10 +656,8 @@ class AckermannCityEnv(Node):
         reward_info['is_collision'] = is_colliding
         reward_info['is_collision_lidar'] = is_colliding_lidar
         reward_info['is_collision_offroad'] = is_colliding_offroad
-        
-        # DEBUG: Log final reward_info state
-        if is_colliding:
-            self.get_logger().debug(f"DEBUG: Final reward_info collision state: is_collision={reward_info['is_collision']}, penalty={reward_info['penalty_collision']}")
+        reward_info['min_lidar_distance'] = min_lidar_dist
+        reward_info['road_distance'] = road_distance
         
         # 5. Battery penalty (penalty for low battery)
         battery_level = self.battery.get_battery_level()
