@@ -18,6 +18,7 @@ import time
 import math
 from ackermann_drl.utils.battery_model import BatteryModel
 from ackermann_drl.utils.delivery_points import DeliveryPoints
+from ackermann_drl.utils.roads_geometry import RoadsGeometry
 
 
 class AckermannCityEnv(Node):
@@ -77,6 +78,18 @@ class AckermannCityEnv(Node):
         self.delivery_points = DeliveryPoints()
         self.current_goal: Optional[Dict] = None
         
+        # Roads geometry (for road distance calculation)
+        try:
+            self.roads_geometry = RoadsGeometry()
+            self.get_logger().info("Roads geometry loaded successfully")
+        except Exception as e:
+            self.get_logger().warn(f"Failed to load roads geometry: {e}. Road distance will be zero.")
+            self.roads_geometry = None
+        
+        # Observation parameters
+        self.lidar_downsample_factor = 4  # Downsample 720 to 180 samples
+        self.lidar_downsampled_size = 720 // self.lidar_downsample_factor  # 180
+        
         # Executor for spinning (minimal - single thread)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self)
@@ -107,7 +120,7 @@ class AckermannCityEnv(Node):
         Selects a new random goal (delivery point) on reset.
         
         Returns:
-            Initial observation array (720 scan samples + 1 battery level + 3 goal deltas = 724 total)
+            Initial observation array with complete observation vector
         """
         self.get_logger().info("Resetting environment")
         # Reset state storage
@@ -243,16 +256,82 @@ class AckermannCityEnv(Node):
         
         return (dx, dy, dtheta)
     
+    def downsample_lidar(self, ranges: np.ndarray) -> np.ndarray:
+        """Downsample LiDAR scan data.
+        
+        Args:
+            ranges: Full LiDAR scan array (720 samples)
+            
+        Returns:
+            Downsampled array (180 samples)
+        """
+        # Simple downsampling: take every Nth sample
+        downsampled = ranges[::self.lidar_downsample_factor]
+        return downsampled[:self.lidar_downsampled_size]
+    
+    def get_velocity_and_steering(self) -> Tuple[float, float]:
+        """Extract velocity and steering from odometry.
+        
+        Returns:
+            Tuple of (velocity, steering):
+            - velocity: Linear velocity magnitude (m/s)
+            - steering: Angular velocity (rad/s) - represents steering rate
+        """
+        if self.latest_odom is None:
+            return (0.0, 0.0)
+        
+        twist = self.latest_odom.twist.twist
+        velocity = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+        steering = twist.angular.z  # Angular velocity (rad/s)
+        
+        return (velocity, steering)
+    
+    def get_road_distance(self) -> float:
+        """Get distance to nearest road.
+        
+        Returns:
+            Distance to nearest road in meters (0.0 if on road, positive if off-road)
+        """
+        if self.roads_geometry is None or self.latest_odom is None:
+            return 0.0
+        
+        # Get robot position
+        robot_pos = self.latest_odom.pose.pose.position
+        robot_x = robot_pos.x  # east
+        robot_y = robot_pos.y  # north
+        
+        # Get distance to nearest road
+        distance, _ = self.roads_geometry.distance_to_nearest_road(robot_x, robot_y)
+        return distance
+    
     def get_observation(self) -> np.ndarray:
         """Get current observation from sensors.
         
-        Returns:
-            Observation array: 720 laser scan + 1 battery + 3 goal deltas (Δx, Δy, Δθ) = 724 total
-        """
-        # Initialize observation array (720 scan + 1 battery + 3 goal deltas = 724)
-        obs = np.zeros(724, dtype=np.float32)
+        Complete observation vector includes:
+        - Downsampled LiDAR (180 samples)
+        - Velocity (1 value)
+        - Steering (1 value)
+        - Goal deltas: Δx, Δy, Δθ (3 values)
+        - Battery level (1 value)
+        - Road distance (1 value)
         
-        # Fill laser scan data (indices 0-719)
+        Total: 180 + 1 + 1 + 3 + 1 + 1 = 187 elements
+        
+        Returns:
+            Observation array: 187 elements total
+        """
+        # Observation structure:
+        # [0:180]   - Downsampled LiDAR (180 samples)
+        # [180]     - Velocity (m/s)
+        # [181]     - Steering (rad/s)
+        # [182:185] - Goal deltas: Δx, Δy, Δθ (3 values)
+        # [185]     - Battery level [0,1]
+        # [186]     - Road distance (m)
+        
+        obs = np.zeros(187, dtype=np.float32)
+        idx = 0
+        
+        # 1. Downsampled LiDAR (indices 0-179)
         if self.latest_scan is not None:
             ranges = np.array(self.latest_scan.ranges, dtype=np.float32)
             # Replace inf/nan with max range
@@ -262,16 +341,34 @@ class AckermannCityEnv(Node):
                 posinf=self.latest_scan.range_max,
                 neginf=self.latest_scan.range_max
             )
-            obs[:720] = ranges
+            # Downsample
+            downsampled = self.downsample_lidar(ranges)
+            obs[idx:idx+self.lidar_downsampled_size] = downsampled
+        idx += self.lidar_downsampled_size  # 180
         
-        # Add battery level (index 720)
-        obs[720] = self.battery.get_battery_level()
+        # 2. Velocity and steering (indices 180-181)
+        velocity, steering = self.get_velocity_and_steering()
+        obs[idx] = velocity
+        idx += 1  # 181
+        obs[idx] = steering
+        idx += 1  # 182
         
-        # Add goal deltas (indices 721-723: Δx, Δy, Δθ)
+        # 3. Goal deltas: Δx, Δy, Δθ (indices 182-184)
         dx, dy, dtheta = self.compute_goal_deltas()
-        obs[721] = dx
-        obs[722] = dy
-        obs[723] = dtheta
+        obs[idx] = dx
+        idx += 1  # 183
+        obs[idx] = dy
+        idx += 1  # 184
+        obs[idx] = dtheta
+        idx += 1  # 185
+        
+        # 4. Battery level (index 185)
+        obs[idx] = self.battery.get_battery_level()
+        idx += 1  # 186
+        
+        # 5. Road distance (index 186)
+        obs[idx] = self.get_road_distance()
+        idx += 1  # 187
         
         return obs
 
