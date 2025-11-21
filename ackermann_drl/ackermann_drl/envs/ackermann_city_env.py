@@ -113,14 +113,16 @@ class AckermannCityEnv(Node):
         self.executor = None
         if rclpy.ok():
             try:
-                executor = SingleThreadedExecutor()
+                # Get the default context explicitly
+                context = rclpy.get_default_context()
+                executor = SingleThreadedExecutor(context=context)
                 executor.add_node(self)
                 self.executor = executor
             except Exception as e:
-                self.get_logger().warn(f"Failed to create executor (will use rclpy.spin_once fallback): {e}")
+                # Silently fail - we'll use fallback
                 self.executor = None
         else:
-            self.get_logger().warn("rclpy not initialized, executor will not be created (will use rclpy.spin_once fallback)")
+            self.executor = None
         
         self.get_logger().info("AckermannCityEnv initialized (Docker-ready)")
     
@@ -212,10 +214,23 @@ class AckermannCityEnv(Node):
         """
         # Publish control command to /cmd_vel (same topic as saye_control)
         # Note: AckermannSteering plugin handles conversion to steering angles
+        if not rclpy.ok():
+            self.get_logger().error("rclpy context invalid, cannot publish command")
+            # Return zero observation and negative reward
+            obs = self.get_observation()
+            return obs, -10.0, True, False, {'error': 'rclpy context invalid'}
+        
         cmd = Twist()
         cmd.linear.x = float(action[0])
         cmd.angular.z = float(action[1])
-        self.cmd_vel_pub.publish(cmd)
+        
+        try:
+            self.cmd_vel_pub.publish(cmd)
+        except Exception as e:
+            self.get_logger().error(f"Failed to publish command: {e}")
+            # Return zero observation and negative reward
+            obs = self.get_observation()
+            return obs, -10.0, True, False, {'error': f'publish failed: {e}'}
         
         # Spin briefly to process any incoming messages
         for _ in range(3):
