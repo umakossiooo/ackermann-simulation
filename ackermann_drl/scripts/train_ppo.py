@@ -36,10 +36,12 @@ class RewardLoggingCallback(BaseCallback):
         self.reward_keys = [
             'reward_progress',
             'reward_goal',
+            'reward_ontime',
             'penalty_offroad',
             'penalty_collision',
             'penalty_battery',
-            'penalty_time'
+            'penalty_time',
+            'penalty_late'
         ]
     
     def _on_step(self) -> bool:
@@ -72,12 +74,14 @@ class RewardLoggingCallback(BaseCallback):
             # Print to console periodically
             if self.step_count % self.log_interval == 0:
                 print(f"\n[Step {self.step_count}] Reward Breakdown:")
-                print(f"  Progress: {reward_sums['reward_progress']/count:+.4f}")
-                print(f"  Goal:     {reward_sums['reward_goal']/count:+.4f}")
+                print(f"  Progress:  {reward_sums['reward_progress']/count:+.4f}")
+                print(f"  Goal:      {reward_sums['reward_goal']/count:+.4f}")
+                print(f"  On-time:   {reward_sums['reward_ontime']/count:+.4f}")
                 print(f"  Off-road:  {reward_sums['penalty_offroad']/count:+.4f}")
                 print(f"  Collision: {reward_sums['penalty_collision']/count:+.4f}")
                 print(f"  Battery:   {reward_sums['penalty_battery']/count:+.4f}")
                 print(f"  Time:      {reward_sums['penalty_time']/count:+.4f}")
+                print(f"  Late:      {reward_sums['penalty_late']/count:+.4f}")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)
                 print(f"  Total:     {total:+.4f}\n")
         
