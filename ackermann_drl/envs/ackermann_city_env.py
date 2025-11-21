@@ -15,7 +15,9 @@ from geometry_msgs.msg import Twist
 import numpy as np
 from typing import Tuple, Dict, Any, Optional
 import time
+import math
 from ackermann_drl.utils.battery_model import BatteryModel
+from ackermann_drl.utils.delivery_points import DeliveryPoints
 
 
 class AckermannCityEnv(Node):
@@ -71,6 +73,10 @@ class AckermannCityEnv(Node):
         # Battery model
         self.battery = BatteryModel(initial_level=1.0, alpha=0.001, beta=0.01)
         
+        # Delivery points (goals)
+        self.delivery_points = DeliveryPoints()
+        self.current_goal: Optional[Dict] = None
+        
         # Executor for spinning (minimal - single thread)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self)
@@ -98,8 +104,10 @@ class AckermannCityEnv(Node):
     def reset(self) -> np.ndarray:
         """Reset the environment and return initial observation.
         
+        Selects a new random goal (delivery point) on reset.
+        
         Returns:
-            Initial observation array (720 scan samples + 1 battery level = 721 total)
+            Initial observation array (720 scan samples + 1 battery level + 3 goal deltas = 724 total)
         """
         self.get_logger().info("Resetting environment")
         # Reset state storage
@@ -111,13 +119,24 @@ class AckermannCityEnv(Node):
         # Reset battery
         self.battery.reset()
         
+        # Select new random goal
+        try:
+            self.current_goal = self.delivery_points.get_random_point()
+            goal_pos = self.delivery_points.get_point_position(self.current_goal)
+            self.get_logger().info(
+                f"Selected goal: {self.current_goal.get('name', 'unknown')} "
+                f"at ({goal_pos[0]:.2f}, {goal_pos[1]:.2f})"
+            )
+        except Exception as e:
+            self.get_logger().warn(f"Failed to select goal: {e}. Continuing without goal.")
+            self.current_goal = None
+        
         # Spin briefly to allow any pending messages
         for _ in range(5):
             self.spin_once(timeout_sec=0.01)
         
-        # Return observation: 720 scan samples + 1 battery level
-        obs = np.zeros(721, dtype=np.float32)
-        obs[720] = self.battery.get_battery_level()  # Battery level at end
+        # Return observation: 720 scan + 1 battery + 3 goal deltas (Δx, Δy, Δθ) = 724
+        obs = self.get_observation()
         return obs
     
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
@@ -166,21 +185,74 @@ class AckermannCityEnv(Node):
             'scan_received': self.scan_received,
             'odom_received': self.odom_received,
             'battery_level': self.battery.get_battery_level(),
-            'battery_depleted': self.battery.is_depleted()
+            'battery_depleted': self.battery.is_depleted(),
+            'current_goal': self.current_goal.get('name') if self.current_goal else None
         }
         
         return observation, reward, terminated, truncated, info
+    
+    def compute_goal_deltas(self) -> Tuple[float, float, float]:
+        """Compute Δx, Δy, Δθ to current goal.
+        
+        Returns:
+            Tuple of (Δx, Δy, Δθ) in robot frame:
+            - Δx: Distance along robot's forward direction (east)
+            - Δy: Distance along robot's left direction (north)
+            - Δθ: Angle to goal relative to robot heading (radians)
+        """
+        if self.current_goal is None or self.latest_odom is None:
+            return (0.0, 0.0, 0.0)
+        
+        # Get goal position
+        goal_pos = self.delivery_points.get_point_position(self.current_goal)
+        goal_x = goal_pos[0]  # east
+        goal_y = goal_pos[1]  # north
+        
+        # Get robot position and orientation
+        robot_pos = self.latest_odom.pose.pose.position
+        robot_x = robot_pos.x  # east
+        robot_y = robot_pos.y  # north
+        
+        # Get robot orientation (quaternion to yaw)
+        robot_orient = self.latest_odom.pose.pose.orientation
+        # Convert quaternion to yaw
+        siny_cosp = 2.0 * (robot_orient.w * robot_orient.z + robot_orient.x * robot_orient.y)
+        cosy_cosp = 1.0 - 2.0 * (robot_orient.y * robot_orient.y + robot_orient.z * robot_orient.z)
+        robot_yaw = math.atan2(siny_cosp, cosy_cosp)
+        
+        # Compute deltas in world frame
+        dx_world = goal_x - robot_x  # east
+        dy_world = goal_y - robot_y  # north
+        
+        # Transform to robot frame (rotate by -robot_yaw)
+        # In robot frame: x is forward (east when yaw=0), y is left (north when yaw=0)
+        cos_yaw = math.cos(-robot_yaw)
+        sin_yaw = math.sin(-robot_yaw)
+        dx = dx_world * cos_yaw - dy_world * sin_yaw  # Forward
+        dy = dx_world * sin_yaw + dy_world * cos_yaw  # Left
+        
+        # Compute angle to goal
+        goal_yaw = math.atan2(dy_world, dx_world)
+        dtheta = goal_yaw - robot_yaw
+        
+        # Normalize angle to [-π, π]
+        while dtheta > math.pi:
+            dtheta -= 2 * math.pi
+        while dtheta < -math.pi:
+            dtheta += 2 * math.pi
+        
+        return (dx, dy, dtheta)
     
     def get_observation(self) -> np.ndarray:
         """Get current observation from sensors.
         
         Returns:
-            Observation array: 720 laser scan samples + 1 battery level = 721 total
+            Observation array: 720 laser scan + 1 battery + 3 goal deltas (Δx, Δy, Δθ) = 724 total
         """
-        # Initialize observation array (720 scan + 1 battery = 721)
-        obs = np.zeros(721, dtype=np.float32)
+        # Initialize observation array (720 scan + 1 battery + 3 goal deltas = 724)
+        obs = np.zeros(724, dtype=np.float32)
         
-        # Fill laser scan data
+        # Fill laser scan data (indices 0-719)
         if self.latest_scan is not None:
             ranges = np.array(self.latest_scan.ranges, dtype=np.float32)
             # Replace inf/nan with max range
@@ -192,8 +264,14 @@ class AckermannCityEnv(Node):
             )
             obs[:720] = ranges
         
-        # Add battery level at the end (index 720)
+        # Add battery level (index 720)
         obs[720] = self.battery.get_battery_level()
+        
+        # Add goal deltas (indices 721-723: Δx, Δy, Δθ)
+        dx, dy, dtheta = self.compute_goal_deltas()
+        obs[721] = dx
+        obs[722] = dy
+        obs[723] = dtheta
         
         return obs
 
