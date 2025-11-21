@@ -136,23 +136,11 @@ class AckermannCityEnv(Node):
         """Callback for laser scan messages."""
         self.latest_scan = msg
         self.scan_received = True
-        # Debug: log first few callbacks
-        if not hasattr(self, '_scan_callback_count'):
-            self._scan_callback_count = 0
-        self._scan_callback_count += 1
-        if self._scan_callback_count <= 3:
-            self.get_logger().info(f"Scan callback received (count: {self._scan_callback_count})")
     
     def _odom_callback(self, msg: Odometry):
         """Callback for odometry messages."""
         self.latest_odom = msg
         self.odom_received = True
-        # Debug: log first few callbacks
-        if not hasattr(self, '_odom_callback_count'):
-            self._odom_callback_count = 0
-        self._odom_callback_count += 1
-        if self._odom_callback_count <= 3:
-            self.get_logger().info(f"Odom callback received (count: {self._odom_callback_count})")
     
     def spin_once(self, timeout_sec: float = 0.1):
         """Spin executor once to process callbacks.
