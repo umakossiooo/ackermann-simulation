@@ -15,6 +15,7 @@ from geometry_msgs.msg import Twist
 import numpy as np
 from typing import Tuple, Dict, Any, Optional
 import time
+from ackermann_drl.utils.battery_model import BatteryModel
 
 
 class AckermannCityEnv(Node):
@@ -67,6 +68,9 @@ class AckermannCityEnv(Node):
         self.scan_received = False
         self.odom_received = False
         
+        # Battery model
+        self.battery = BatteryModel(initial_level=1.0, alpha=0.001, beta=0.01)
+        
         # Executor for spinning (minimal - single thread)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self)
@@ -95,7 +99,7 @@ class AckermannCityEnv(Node):
         """Reset the environment and return initial observation.
         
         Returns:
-            Initial observation array (placeholder - zero observation)
+            Initial observation array (720 scan samples + 1 battery level = 721 total)
         """
         self.get_logger().info("Resetting environment")
         # Reset state storage
@@ -104,12 +108,17 @@ class AckermannCityEnv(Node):
         self.scan_received = False
         self.odom_received = False
         
+        # Reset battery
+        self.battery.reset()
+        
         # Spin briefly to allow any pending messages
         for _ in range(5):
             self.spin_once(timeout_sec=0.01)
         
-        # Return placeholder observation (720 scan samples)
-        return np.zeros(720, dtype=np.float32)
+        # Return observation: 720 scan samples + 1 battery level
+        obs = np.zeros(721, dtype=np.float32)
+        obs[720] = self.battery.get_battery_level()  # Battery level at end
+        return obs
     
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         """Execute one step in the environment.
@@ -133,7 +142,20 @@ class AckermannCityEnv(Node):
         for _ in range(3):
             self.spin_once(timeout_sec=0.01)
         
-        # Get observation from sensors
+        # Update battery based on odometry
+        if self.latest_odom is not None:
+            # Extract position and velocity from odometry
+            pos = self.latest_odom.pose.pose.position
+            position = np.array([pos.x, pos.y, pos.z])
+            
+            # Calculate velocity magnitude from twist
+            twist = self.latest_odom.twist.twist
+            velocity = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+            
+            # Update battery (dt is approximate, not used in formula)
+            self.battery.update(position, velocity, dt=0.1)
+        
+        # Get observation from sensors (includes battery level)
         observation = self.get_observation()
         
         # Minimal implementation: return zero reward, not terminated, not truncated
@@ -142,7 +164,9 @@ class AckermannCityEnv(Node):
         truncated = False
         info = {
             'scan_received': self.scan_received,
-            'odom_received': self.odom_received
+            'odom_received': self.odom_received,
+            'battery_level': self.battery.get_battery_level(),
+            'battery_depleted': self.battery.is_depleted()
         }
         
         return observation, reward, terminated, truncated, info
@@ -151,20 +175,25 @@ class AckermannCityEnv(Node):
         """Get current observation from sensors.
         
         Returns:
-            Observation array (laser scan data or placeholder)
+            Observation array: 720 laser scan samples + 1 battery level = 721 total
         """
-        if self.latest_scan is None:
-            # Return placeholder observation if no scan received yet
-            return np.zeros(720, dtype=np.float32)
+        # Initialize observation array (720 scan + 1 battery = 721)
+        obs = np.zeros(721, dtype=np.float32)
         
-        # Convert scan ranges to numpy array
-        ranges = np.array(self.latest_scan.ranges, dtype=np.float32)
-        # Replace inf/nan with max range
-        ranges = np.nan_to_num(
-            ranges, 
-            nan=self.latest_scan.range_max, 
-            posinf=self.latest_scan.range_max,
-            neginf=self.latest_scan.range_max
-        )
-        return ranges
+        # Fill laser scan data
+        if self.latest_scan is not None:
+            ranges = np.array(self.latest_scan.ranges, dtype=np.float32)
+            # Replace inf/nan with max range
+            ranges = np.nan_to_num(
+                ranges, 
+                nan=self.latest_scan.range_max, 
+                posinf=self.latest_scan.range_max,
+                neginf=self.latest_scan.range_max
+            )
+            obs[:720] = ranges
+        
+        # Add battery level at the end (index 720)
+        obs[720] = self.battery.get_battery_level()
+        
+        return obs
 
