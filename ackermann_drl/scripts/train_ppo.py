@@ -91,7 +91,10 @@ class RewardLoggingCallback(BaseCallback):
                 # Get additional diagnostics
                 velocity = first_info.get('velocity', -1.0) if 'velocity' in first_info else -1.0
                 distance_to_goal = first_info.get('distance_to_goal', -1.0) if 'distance_to_goal' in first_info else -1.0
+                is_collision = first_info.get('is_collision', False)
+                collision_threshold = 0.3  # From ackermann_city_env
                 print(f"  Diagnostics: scan={has_scan}, odom={has_odom}, goal={has_goal}, road_dist={road_dist:.2f}m, min_lidar={min_lidar:.2f}m")
+                print(f"  Collision: is_collision={is_collision}, min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m)")
                 if velocity >= 0:
                     print(f"  Car velocity: {velocity:.2f} m/s, distance_to_goal: {distance_to_goal:.2f}m\n")
                 else:
