@@ -162,10 +162,18 @@ def main():
     print()
     
     try:
+        # Use progress_bar only if tqdm/rich are available
+        try:
+            import tqdm
+            import rich
+            use_progress_bar = True
+        except ImportError:
+            use_progress_bar = False
+        
         model.learn(
             total_timesteps=args.total_timesteps,
             callback=checkpoint_callback,
-            progress_bar=True
+            progress_bar=use_progress_bar
         )
         
         # Save final model
