@@ -21,38 +21,57 @@ docker compose up -d
 docker compose exec ackermann_sim bash
 ```
 
-### Step 2: Start Gazebo (in a separate terminal or background)
+### Step 2: Start Gazebo (REQUIRED - must run in background)
 
-**Option A: With GUI (if X11 forwarding available)**
+**⚠️ IMPORTANT:** Gazebo MUST be running before you start training!
+
+**Option A: Background process (RECOMMENDED for training)**
 ```bash
-docker compose exec ackermann_sim bash
-ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf
+# Start Gazebo in background (headless)
+docker compose exec -d ackermann_sim bash -c \
+  "source /opt/ros/jazzy/setup.bash && \
+   source /root/colcon_ws/install/setup.bash && \
+   ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false"
 ```
 
-**Option B: Headless (recommended for training)**
+**Option B: Separate terminal (for monitoring)**
 ```bash
+# Terminal 1: Start Gazebo
 docker compose exec ackermann_sim bash
+source /opt/ros/jazzy/setup.bash
+source /root/colcon_ws/install/setup.bash
 ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false
+# Keep this terminal open - Gazebo runs here
 ```
 
-**Option C: Background process**
+**Option C: With GUI (if X11 forwarding available)**
 ```bash
-docker compose exec -d ackermann_sim bash -c "source /opt/ros/jazzy/setup.bash && source /root/colcon_ws/install/setup.bash && ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false"
+docker compose exec ackermann_sim bash
+source /opt/ros/jazzy/setup.bash
+source /root/colcon_ws/install/setup.bash
+ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf
 ```
 
 ### Step 3: Verify ROS Topics (in training terminal)
 
 ```bash
-# Inside Docker container
+# Enter container in NEW terminal for training
+docker compose exec ackermann_sim bash
 source /opt/ros/jazzy/setup.bash
 source /root/colcon_ws/install/setup.bash
 
-# Check topics are available
+# Check topics are available (Gazebo must be running!)
 ros2 topic list
 # Should see: /cmd_vel, /odom, /scan, etc.
+
+# Verify topics have data
+ros2 topic echo /odom --once  # Should show odometry data
+ros2 topic echo /scan --once  # Should show laser scan data
 ```
 
-### Step 4: Start Training
+**⚠️ If topics are empty or missing, Gazebo is not running!**
+
+### Step 4: Start Training (in the same terminal as Step 3)
 
 ```bash
 # Basic training (100k steps, saves checkpoint every 10k steps)
