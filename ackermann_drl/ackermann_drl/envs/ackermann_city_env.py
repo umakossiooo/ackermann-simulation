@@ -102,7 +102,10 @@ class AckermannCityEnv(Node):
         self.goal_reached_threshold = 2.0  # Consider goal reached if within 2m
         
         # Collision detection threshold (meters)
-        self.collision_threshold = 0.3  # Consider collision if obstacle within 0.3m
+        # Note: LiDAR might not detect low obstacles (sidewalks) perfectly, so we use a more aggressive threshold
+        # Also check road distance as a proxy for collision with curbs/sidewalks
+        self.collision_threshold = 0.4  # Consider collision if obstacle within 0.4m
+        self.offroad_collision_threshold = 0.5  # If off-road by more than this, consider it a collision with sidewalk
         
         # Track previous distance for progress calculation
         self.prev_distance_to_goal: Optional[float] = None
@@ -596,19 +599,32 @@ class AckermannCityEnv(Node):
             reward_info['penalty_offroad'] = 0.0
         
         # 4. Collision penalty
+        # Check both LiDAR collision and off-road collision (sidewalk/curb)
+        is_colliding_lidar = False
+        is_colliding_offroad = False
+        
         if has_scan:
-            is_colliding = self.is_collision()
-            if is_colliding:
-                reward += self.reward_collision_penalty
-                reward_info['penalty_collision'] = self.reward_collision_penalty
-            else:
-                reward_info['penalty_collision'] = 0.0
-            # Add collision status to info for debugging
-            reward_info['is_collision'] = is_colliding
+            is_colliding_lidar = self.is_collision()
+        
+        # Also check if severely off-road (likely hitting sidewalk/curb)
+        if has_odom:
+            road_distance = self.get_road_distance()
+            if road_distance > self.offroad_collision_threshold:
+                is_colliding_offroad = True
+                self.get_logger().warn(f"Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m")
+        
+        is_colliding = is_colliding_lidar or is_colliding_offroad
+        
+        if is_colliding:
+            reward += self.reward_collision_penalty
+            reward_info['penalty_collision'] = self.reward_collision_penalty
         else:
-            # No scan data - can't detect collision
             reward_info['penalty_collision'] = 0.0
-            reward_info['is_collision'] = False
+        
+        # Add collision status to info for debugging
+        reward_info['is_collision'] = is_colliding
+        reward_info['is_collision_lidar'] = is_colliding_lidar
+        reward_info['is_collision_offroad'] = is_colliding_offroad
         
         # 5. Battery penalty (penalty for low battery)
         battery_level = self.battery.get_battery_level()
@@ -637,9 +653,15 @@ class AckermannCityEnv(Node):
         if self.is_goal_reached():
             terminated = True
         
-        # Terminate if collision
+        # Terminate if collision (LiDAR or off-road)
         if self.is_collision():
             terminated = True
+        
+        # Also check off-road collision (sidewalk/curb)
+        if self.latest_odom is not None:
+            road_distance = self.get_road_distance()
+            if road_distance > self.offroad_collision_threshold:
+                terminated = True
         
         # Truncate if battery depleted
         if self.battery.is_depleted():
