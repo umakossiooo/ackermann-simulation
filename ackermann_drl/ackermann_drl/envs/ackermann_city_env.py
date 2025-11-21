@@ -98,12 +98,6 @@ class AckermannCityEnv(Node):
         self.reward_battery_penalty_scale = -0.5  # Penalty scale for low battery
         self.reward_time_penalty = -0.01  # Small penalty per step
         
-        # Delivery deadline parameters
-        self.delivery_deadline_base_seconds = 60.0  # Base deadline in seconds
-        self.delivery_deadline_per_meter = 2.0  # Additional seconds per meter of distance
-        self.reward_ontime_bonus = 5.0  # Bonus for on-time delivery
-        self.reward_late_penalty_scale = -0.5  # Penalty per second late
-        
         # Goal reached threshold (meters)
         self.goal_reached_threshold = 2.0  # Consider goal reached if within 2m
         
@@ -112,11 +106,6 @@ class AckermannCityEnv(Node):
         
         # Track previous distance for progress calculation
         self.prev_distance_to_goal: Optional[float] = None
-        
-        # Track delivery time
-        self.step_count = 0  # Steps since reset
-        self.delivery_deadline_steps: Optional[int] = None  # Deadline in steps
-        self.step_duration = 0.1  # Approximate seconds per step (adjust based on your control frequency)
         
         # Executor for spinning (minimal - single thread)
         # Create executor - it will use the default context from rclpy.init()
@@ -187,33 +176,13 @@ class AckermannCityEnv(Node):
         # Reset previous distance tracking
         self.prev_distance_to_goal = None
         
-        # Reset step counter
-        self.step_count = 0
-        self.delivery_deadline_steps = None
-        
         # Select new random goal
         try:
             self.current_goal = self.delivery_points.get_random_point()
             goal_pos = self.delivery_points.get_point_position(self.current_goal)
-            
-            # Calculate delivery deadline based on distance
-            # Get initial distance to goal (if odom available)
-            initial_distance = 0.0
-            if self.latest_odom is not None:
-                robot_pos = self.latest_odom.pose.pose.position
-                dx = goal_pos[0] - robot_pos.x
-                dy = goal_pos[1] - robot_pos.y
-                initial_distance = np.sqrt(dx**2 + dy**2)
-            
-            # Deadline = base time + time per meter * distance
-            deadline_seconds = self.delivery_deadline_base_seconds + \
-                              (self.delivery_deadline_per_meter * initial_distance)
-            self.delivery_deadline_steps = int(deadline_seconds / self.step_duration)
-            
             self.get_logger().info(
                 f"Selected goal: {self.current_goal.get('name', 'unknown')} "
-                f"at ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}), "
-                f"deadline: {deadline_seconds:.1f}s ({self.delivery_deadline_steps} steps)"
+                f"at ({goal_pos[0]:.2f}, {goal_pos[1]:.2f})"
             )
         except Exception as e:
             self.get_logger().warn(f"Failed to select goal: {e}. Continuing without goal.")
@@ -264,7 +233,8 @@ class AckermannCityEnv(Node):
             return obs, -10.0, True, False, {'error': f'publish failed: {e}'}
         
         # Spin briefly to process any incoming messages
-        for _ in range(3):
+        # Give more time for sensor data to arrive
+        for _ in range(10):
             self.spin_once(timeout_sec=0.01)
         
         # Update battery based on odometry
@@ -289,12 +259,28 @@ class AckermannCityEnv(Node):
         # Check termination conditions
         terminated, truncated = self.check_termination()
         
+        # Calculate min LiDAR distance safely
+        min_lidar_dist = -1.0
+        if self.latest_scan is not None:
+            try:
+                ranges = np.array(self.latest_scan.ranges)
+                valid_ranges = ranges[np.isfinite(ranges)]
+                if len(valid_ranges) > 0:
+                    min_lidar_dist = float(np.min(valid_ranges))
+            except:
+                pass
+        
         info = {
             'scan_received': self.scan_received,
             'odom_received': self.odom_received,
             'battery_level': self.battery.get_battery_level(),
             'battery_depleted': self.battery.is_depleted(),
             'current_goal': self.current_goal.get('name') if self.current_goal else None,
+            'has_scan': self.latest_scan is not None,
+            'has_odom': self.latest_odom is not None,
+            'has_goal': self.current_goal is not None,
+            'road_distance': self.get_road_distance() if self.latest_odom is not None else -1.0,
+            'min_lidar_distance': min_lidar_dist,
             **reward_info  # Add reward breakdown
         }
         
@@ -528,19 +514,19 @@ class AckermannCityEnv(Node):
         reward_info = {
             'reward_progress': 0.0,
             'reward_goal': 0.0,
-            'reward_ontime': 0.0,
             'penalty_offroad': 0.0,
             'penalty_collision': 0.0,
             'penalty_battery': 0.0,
-            'penalty_time': 0.0,
-            'penalty_late': 0.0,
-            'delivery_time_steps': self.step_count,
-            'delivery_deadline_steps': self.delivery_deadline_steps if self.delivery_deadline_steps else 0,
-            'is_ontime': False
+            'penalty_time': 0.0
         }
         
+        # Debug: Check if sensors are working
+        has_odom = self.latest_odom is not None
+        has_scan = self.latest_scan is not None
+        has_goal = self.current_goal is not None
+        
         # 1. Progress reward (getting closer to goal)
-        if self.current_goal is not None and self.latest_odom is not None:
+        if has_goal and has_odom:
             current_distance = self.get_distance_to_goal()
             
             if self.prev_distance_to_goal is not None:
@@ -549,41 +535,42 @@ class AckermannCityEnv(Node):
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
             
-            # Update previous distance
+            # Update previous distance (even if None, set it now)
             self.prev_distance_to_goal = current_distance
             
             # 2. Goal reward (reaching goal)
             if self.is_goal_reached():
                 reward += self.reward_goal_reached
                 reward_info['reward_goal'] = self.reward_goal_reached
-                
-                # 2a. On-time delivery bonus or late penalty
-                if self.delivery_deadline_steps is not None:
-                    if self.step_count <= self.delivery_deadline_steps:
-                        # On-time delivery!
-                        reward += self.reward_ontime_bonus
-                        reward_info['reward_ontime'] = self.reward_ontime_bonus
-                        reward_info['is_ontime'] = True
-                    else:
-                        # Late delivery - penalty based on how late
-                        steps_late = self.step_count - self.delivery_deadline_steps
-                        seconds_late = steps_late * self.step_duration
-                        late_penalty = self.reward_late_penalty_scale * seconds_late
-                        reward += late_penalty
-                        reward_info['penalty_late'] = late_penalty
-                        reward_info['is_ontime'] = False
+        elif not has_goal:
+            # No goal selected - this shouldn't happen but handle it
+            reward_info['reward_progress'] = 0.0
+        elif not has_odom:
+            # No odometry - can't compute progress
+            reward_info['reward_progress'] = 0.0
         
         # 3. Off-road penalty
-        road_distance = self.get_road_distance()
-        if road_distance > 0.0:
-            offroad_penalty = self.reward_offroad_penalty * road_distance
-            reward += offroad_penalty
-            reward_info['penalty_offroad'] = offroad_penalty
+        if has_odom:
+            road_distance = self.get_road_distance()
+            if road_distance > 0.0:
+                offroad_penalty = self.reward_offroad_penalty * road_distance
+                reward += offroad_penalty
+                reward_info['penalty_offroad'] = offroad_penalty
+            else:
+                reward_info['penalty_offroad'] = 0.0
+        else:
+            reward_info['penalty_offroad'] = 0.0
         
         # 4. Collision penalty
-        if self.is_collision():
-            reward += self.reward_collision_penalty
-            reward_info['penalty_collision'] = self.reward_collision_penalty
+        if has_scan:
+            if self.is_collision():
+                reward += self.reward_collision_penalty
+                reward_info['penalty_collision'] = self.reward_collision_penalty
+            else:
+                reward_info['penalty_collision'] = 0.0
+        else:
+            # No scan data - can't detect collision
+            reward_info['penalty_collision'] = 0.0
         
         # 5. Battery penalty (penalty for low battery)
         battery_level = self.battery.get_battery_level()
