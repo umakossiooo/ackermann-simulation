@@ -70,8 +70,11 @@ source /root/colcon_ws/install/setup.bash
 ros2 topic list
 # Should see: /cmd_vel, /odom, /scan, etc.
 
-# Verify topics have data (these will only work if Gazebo is running)
-ros2 topic echo /odom --once  # Should show odometry data
+# Verify topics have data (wait a few seconds after Gazebo starts for data to appear)
+# If nothing shows, wait 5-10 seconds and try again - Gazebo needs time to initialize
+ros2 topic info /odom  # Check if topic has publishers
+ros2 topic hz /odom  # Check publication rate (Ctrl+C to stop)
+ros2 topic echo /odom --once  # Should show odometry data (may take a few seconds)
 ros2 topic echo /scan --once  # Should show laser scan data
 ```
 
