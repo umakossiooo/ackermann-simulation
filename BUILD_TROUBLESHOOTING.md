@@ -12,25 +12,21 @@ ERROR:colcon:colcon build: Duplicate package names not supported:
 ```
 
 ### Solution
-The `osm_city_pipeline` directory contains a duplicate `saye_description` package. This is ignored by adding a `.colcon_ignore` file.
+The `osm_city_pipeline` directory contains a duplicate `saye_description` package. 
 
-**If the error persists:**
-1. Verify `.colcon_ignore` exists:
-   ```bash
-   ls -la /root/colcon_ws/src/osm_city_pipeline/saye_description/.colcon_ignore
-   ```
+**Recommended Fix: Use the build script**
+```bash
+# Inside Docker container
+bash /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/build_workspace.sh
+```
 
-2. Clean and rebuild:
-   ```bash
-   cd /root/colcon_ws
-   rm -rf build install log
-   colcon build
-   ```
+**Manual Fix: Build specific packages only**
+```bash
+cd /root/colcon_ws
+colcon build --packages-select saye_msgs saye_description saye_control saye_behaviortree saye_bringup saye_localization ackermann_drl
+```
 
-3. Or build specific packages only:
-   ```bash
-   colcon build --packages-select ackermann_drl saye_bringup saye_description
-   ```
+This avoids the duplicate detection by only building packages from `ackermann-vehicle-gzsim-ros2`.
 
 ## Building Only DRL Package
 
