@@ -2,3 +2,9 @@
 /install/
 /log/
 /.vscode/
+__pycache__/
+*.pyc
+
+# DRL training artifacts
+ackermann_drl/checkpoints/
+ackermann_drl/logs/
