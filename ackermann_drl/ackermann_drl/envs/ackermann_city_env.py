@@ -109,13 +109,18 @@ class AckermannCityEnv(Node):
         
         # Executor for spinning (minimal - single thread)
         # Create executor - it will use the default context from rclpy.init()
-        try:
-            self.executor = SingleThreadedExecutor()
-            self.executor.add_node(self)
-        except Exception as e:
-            self.get_logger().error(f"Failed to create executor: {e}")
-            # Fallback: executor will be None, but we can still use spin_once via rclpy
-            self.executor = None
+        # Note: rclpy.init() must be called before creating executor (done in gym_wrapper)
+        self.executor = None
+        if rclpy.ok():
+            try:
+                executor = SingleThreadedExecutor()
+                executor.add_node(self)
+                self.executor = executor
+            except Exception as e:
+                self.get_logger().warn(f"Failed to create executor (will use rclpy.spin_once fallback): {e}")
+                self.executor = None
+        else:
+            self.get_logger().warn("rclpy not initialized, executor will not be created (will use rclpy.spin_once fallback)")
         
         self.get_logger().info("AckermannCityEnv initialized (Docker-ready)")
     
