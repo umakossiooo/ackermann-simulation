@@ -41,15 +41,15 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/gz
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python DRL dependencies
-# Use --break-system-packages as we're in a container environment
+# Copy requirements file first (for better Docker layer caching)
+# This layer will only rebuild if requirements.txt changes
+COPY requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages \
-    gymnasium>=0.29.0 \
-    stable-baselines3>=2.0.0 \
-    torch>=2.0.0 \
-    numpy>=1.24.0 \
-    shapely>=2.0.0
+    -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
 
 # Clone and build your project
+# This layer will rebuild if the repository changes
 RUN mkdir -p ${COLCON_WS_SRC} && \
     git clone https://github.com/alitekes1/ackermann-vehicle-gzsim-ros2.git ${COLCON_WS_SRC}/ackermann-vehicle-gzsim-ros2 && \
     cd ${COLCON_WS} && \

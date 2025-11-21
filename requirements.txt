@@ -1,0 +1,10 @@
+# Python DRL dependencies for ackermann_drl package
+# These are installed in the Docker container
+# Update this file and rebuild Docker image to update dependencies
+
+gymnasium>=0.29.0
+stable-baselines3>=2.0.0
+torch>=2.0.0
+numpy>=1.24.0
+shapely>=2.0.0
+
