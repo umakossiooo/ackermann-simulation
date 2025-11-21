@@ -120,6 +120,25 @@ def generate_launch_description():
         ]
     )
 
+    # Publish odom -> saye transform from odometry messages
+    # This is needed for RViz to visualize the robot when fixed frame is set to "odom"
+    # robot_state_publisher handles saye -> saye/base_link, so we need odom -> saye
+    installed_script = os.path.join(pkg_project_bringup, '..', '..', 'lib', 'saye_bringup', 'odom_to_tf.py')
+    source_script = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(pkg_project_bringup))),
+        'src', 'ackermann-vehicle-gzsim-ros2', 'saye_bringup', 'scripts', 'odom_to_tf.py'
+    )
+    odom_script = installed_script if os.path.exists(installed_script) else source_script
+    odom_to_tf_node = ExecuteProcess(
+        cmd=['python3', odom_script,
+             '--ros-args',
+             '-p', 'base_frame:=saye',  # Publish odom -> saye (robot_state_publisher handles saye -> saye/base_link)
+             '-p', 'odom_frame:=odom',
+             '-p', 'use_sim_time:=true'],
+        name='odom_to_tf',
+        output='screen'
+    )
+
     # Set camera pose using gz service after Gazebo initializes
     # Calculate camera position based on robot spawn: 5m behind, 3m above (closer view)
     # Robot: x=169.37, y=0.21, z=0.35 -> Camera: x=164.37, y=0.21, z=3.35
@@ -159,6 +178,7 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz', default_value='true',
                               description='Open RViz.'),
         bridge,
+        odom_to_tf_node,  # Publish odom -> saye transform for RViz
         rviz,
         delayed_camera_setup
     ])
