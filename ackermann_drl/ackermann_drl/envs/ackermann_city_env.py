@@ -130,11 +130,23 @@ class AckermannCityEnv(Node):
         """Callback for laser scan messages."""
         self.latest_scan = msg
         self.scan_received = True
+        # Debug: log first few callbacks
+        if not hasattr(self, '_scan_callback_count'):
+            self._scan_callback_count = 0
+        self._scan_callback_count += 1
+        if self._scan_callback_count <= 3:
+            self.get_logger().info(f"Scan callback received (count: {self._scan_callback_count})")
     
     def _odom_callback(self, msg: Odometry):
         """Callback for odometry messages."""
         self.latest_odom = msg
         self.odom_received = True
+        # Debug: log first few callbacks
+        if not hasattr(self, '_odom_callback_count'):
+            self._odom_callback_count = 0
+        self._odom_callback_count += 1
+        if self._odom_callback_count <= 3:
+            self.get_logger().info(f"Odom callback received (count: {self._odom_callback_count})")
     
     def spin_once(self, timeout_sec: float = 0.1):
         """Spin executor once to process callbacks.
@@ -194,8 +206,9 @@ class AckermannCityEnv(Node):
             self.current_goal = None
         
         # Spin briefly to allow any pending messages
-        for _ in range(5):
-            self.spin_once(timeout_sec=0.01)
+        # Wait longer for initial sensor data
+        for _ in range(50):
+            self.spin_once(timeout_sec=0.05)  # Wait up to 2.5 seconds for initial data
         
         # Initialize previous distance
         if self.current_goal is not None and self.latest_odom is not None:
@@ -238,9 +251,9 @@ class AckermannCityEnv(Node):
             return obs, -10.0, True, False, {'error': f'publish failed: {e}'}
         
         # Spin briefly to process any incoming messages
-        # Give more time for sensor data to arrive
-        for _ in range(10):
-            self.spin_once(timeout_sec=0.01)
+        # Give more time for sensor data to arrive - use longer timeout
+        for _ in range(20):
+            self.spin_once(timeout_sec=0.05)  # Increased timeout to 50ms per spin
         
         # Update battery based on odometry
         if self.latest_odom is not None:
