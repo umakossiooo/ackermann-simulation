@@ -23,7 +23,8 @@ echo "Workspace: $COLCON_WS"
 echo
 
 # Build the workspace
-colcon build --symlink-install --packages-select ackermann_drl
+# Note: Exclude saye_description from osm_city_pipeline to avoid duplicate package error
+colcon build --symlink-install --packages-select ackermann_drl --packages-ignore saye_description
 
 echo
 echo "============================================================"

@@ -1,7 +1,6 @@
 #!/bin/bash
-# Build script that avoids duplicate package errors
-# Run this inside Docker container: docker compose exec ackermann_sim bash
-# Then: bash /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/build_workspace.sh
+# Build script - builds all packages from ackermann-vehicle-gzsim-ros2
+# The duplicate saye_description in osm_city_pipeline is ignored via .colcon_ignore
 
 set -e
 
@@ -11,27 +10,10 @@ cd $COLCON_WS
 # Source ROS 2
 source /opt/ros/jazzy/setup.bash
 
-echo "============================================================"
-echo "Building workspace (avoiding duplicate packages)"
-echo "============================================================"
-echo
+# Build all packages
+# Note: colcon should respect .colcon_ignore in osm_city_pipeline/saye_description
+echo "Building workspace..."
+colcon build --symlink-install "$@"
 
-# List of packages to build (from ackermann-vehicle-gzsim-ros2 only)
-PACKAGES="saye_msgs saye_description saye_control saye_behaviortree saye_bringup saye_localization ackermann_drl"
-
-echo "Building packages: $PACKAGES"
-echo
-
-# Build dependencies first, then ackermann_drl
-colcon build \
-  --packages-select $PACKAGES \
-  --symlink-install
-
-echo
-echo "============================================================"
 echo "Build completed successfully!"
-echo "============================================================"
-echo
-echo "To use the workspace, source:"
-echo "  source /root/colcon_ws/install/setup.bash"
 
