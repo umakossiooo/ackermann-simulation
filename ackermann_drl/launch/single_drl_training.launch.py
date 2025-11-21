@@ -72,15 +72,16 @@ def generate_launch_description():
     # DRL environment node (optional - can be started separately)
     # For now, this is a placeholder. The training script can be run manually
     # or via ros2 run after the package is built
-    drl_env_node = Node(
-        package='ackermann_drl',
-        executable='train_ppo',
-        name='drl_training_node',
-        output='screen',
-        parameters=[
-            os.path.join(pkg_ackermann_drl, 'config', 'drl_params.yaml'),
-        ],
-    )
+    # Commented out until train_ppo.py is fully implemented
+    # drl_env_node = Node(
+    #     package='ackermann_drl',
+    #     executable='train_ppo',
+    #     name='drl_training_node',
+    #     output='screen',
+    #     parameters=[
+    #         os.path.join(pkg_ackermann_drl, 'config', 'drl_params.yaml'),
+    #     ],
+    # )
     
     return LaunchDescription([
         world_arg,
@@ -90,6 +91,6 @@ def generate_launch_description():
         robot_z_arg,
         robot_Y_arg,
         saye_spawn,
-        drl_env_node,
+        # drl_env_node,  # Uncomment when train_ppo.py is ready
     ])
 
