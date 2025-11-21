@@ -108,7 +108,8 @@ class AckermannCityEnv(Node):
         self.prev_distance_to_goal: Optional[float] = None
         
         # Executor for spinning (minimal - single thread)
-        self.executor = SingleThreadedExecutor()
+        # Use the node's context for the executor
+        self.executor = SingleThreadedExecutor(context=self.get_clock().context)
         self.executor.add_node(self)
         
         self.get_logger().info("AckermannCityEnv initialized (Docker-ready)")
