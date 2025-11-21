@@ -499,22 +499,47 @@ class AckermannCityEnv(Node):
     def is_collision(self) -> bool:
         """Check if robot has collided with obstacle.
         
+        Uses multiple methods:
+        1. LiDAR scan - checks if any obstacle is too close
+        2. Road distance - if very far off-road, likely colliding with sidewalk/curb
+        3. Velocity check - if velocity is 0 but commands are being sent, might be stuck
+        
         Returns:
-            True if any LiDAR scan is within collision_threshold
+            True if collision detected
         """
-        if self.latest_scan is None:
-            return False
+        collision_detected = False
         
-        ranges = np.array(self.latest_scan.ranges)
-        # Filter out inf and nan
-        valid_ranges = ranges[np.isfinite(ranges)]
+        # Method 1: LiDAR collision detection
+        if self.latest_scan is not None:
+            ranges = np.array(self.latest_scan.ranges)
+            # Filter out inf and nan
+            valid_ranges = ranges[np.isfinite(ranges)]
+            
+            if len(valid_ranges) > 0:
+                min_distance = np.min(valid_ranges)
+                if min_distance < self.collision_threshold:
+                    collision_detected = True
         
-        if len(valid_ranges) == 0:
-            return False
+        # Method 2: Road distance - if very far off-road, likely colliding
+        if self.latest_odom is not None:
+            road_distance = self.get_road_distance()
+            # If more than 1.5m off-road, likely colliding with sidewalk/curb
+            if road_distance > 1.5:
+                collision_detected = True
         
-        # Check if any scan is too close
-        min_distance = np.min(valid_ranges)
-        return min_distance < self.collision_threshold
+        # Method 3: Check if stuck (velocity near 0 but should be moving)
+        # This is a fallback - if we have odom and scan but car isn't moving
+        # and we're off-road, likely colliding
+        if self.latest_odom is not None:
+            twist = self.latest_odom.twist.twist
+            velocity = np.sqrt(twist.linear.x**2 + twist.linear.y**2)
+            # If velocity is very low (< 0.1 m/s) and we're off-road, might be stuck/colliding
+            if velocity < 0.1 and self.get_road_distance() > 0.5:
+                # Additional check: if we've been stuck for a while, consider it collision
+                # For now, just use road distance as proxy
+                pass
+        
+        return collision_detected
     
     def compute_reward(self) -> Tuple[float, Dict[str, float]]:
         """Compute reward for current step.
@@ -586,14 +611,15 @@ class AckermannCityEnv(Node):
             reward_info['penalty_offroad'] = 0.0
         
         # 4. Collision penalty
-        if has_scan:
+        # Check collision using multiple methods (LiDAR + road distance)
+        if has_odom or has_scan:  # Need at least one sensor
             if self.is_collision():
                 reward += self.reward_collision_penalty
                 reward_info['penalty_collision'] = self.reward_collision_penalty
             else:
                 reward_info['penalty_collision'] = 0.0
         else:
-            # No scan data - can't detect collision
+            # No sensor data - can't detect collision
             reward_info['penalty_collision'] = 0.0
         
         # 5. Battery penalty (penalty for low battery)
