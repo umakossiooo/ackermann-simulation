@@ -54,14 +54,26 @@ class RewardLoggingCallback(BaseCallback):
         
         # Aggregate reward components across all environments
         reward_sums = {key: 0.0 for key in self.reward_keys}
+        reward_maxes = {key: 0.0 for key in self.reward_keys}  # Track maximum values
+        collision_count = 0  # Count how many steps had collisions
         count = 0
         
         for info in infos:
             if isinstance(info, dict):
                 for key in self.reward_keys:
                     if key in info:
-                        reward_sums[key] += info[key]
+                        value = info[key]
+                        reward_sums[key] += value
+                        # Track maximum (for collision, this will be the most negative)
+                        if key == 'penalty_collision':
+                            reward_maxes[key] = min(reward_maxes[key], value)  # Most negative
+                        else:
+                            reward_maxes[key] = max(reward_maxes[key], value)
                 count += 1
+                # Track collisions
+                if info.get('is_collision', False):
+                    collision_count += 1
+                    print(f"[CALLBACK DEBUG] Found collision in step: penalty_collision={info.get('penalty_collision')}, is_collision={info.get('is_collision')}, road_dist={info.get('road_distance')}")
         
         # Log averages to TensorBoard
         if count > 0:
@@ -83,7 +95,13 @@ class RewardLoggingCallback(BaseCallback):
                 print(f"  Progress: {reward_sums['reward_progress']/count:+.4f}")
                 print(f"  Goal:     {reward_sums['reward_goal']/count:+.4f}")
                 print(f"  Off-road:  {reward_sums['penalty_offroad']/count:+.4f}")
-                print(f"  Collision: {reward_sums['penalty_collision']/count:+.4f}")
+                # For collision, show both average and max (since collisions are rare, average can be misleading)
+                collision_avg = reward_sums['penalty_collision']/count
+                collision_max = reward_maxes['penalty_collision']
+                if collision_count > 0:
+                    print(f"  Collision: {collision_avg:+.4f} (avg) | {collision_max:+.4f} (max) | {collision_count} collisions in batch")
+                else:
+                    print(f"  Collision: {collision_avg:+.4f}")
                 print(f"  Battery:   {reward_sums['penalty_battery']/count:+.4f}")
                 print(f"  Time:      {reward_sums['penalty_time']/count:+.4f}")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)

@@ -314,9 +314,9 @@ class AckermannCityEnv(Node):
             **reward_info  # Add reward breakdown (includes penalty_collision, is_collision, etc.)
         }
         
-        # DEBUG: Verify collision info is in the dict
+        # DEBUG: Verify collision info is in the dict - use INFO level so it shows up
         if reward_info.get('is_collision', False):
-            self.get_logger().debug(f"DEBUG: info dict collision state: is_collision={info.get('is_collision')}, penalty_collision={info.get('penalty_collision')}")
+            self.get_logger().info(f"[DEBUG] Final info dict: is_collision={info.get('is_collision')}, penalty_collision={info.get('penalty_collision')}, road_dist={info.get('road_distance')}")
         
         return observation, reward, terminated, truncated, info
     
@@ -653,11 +653,16 @@ class AckermannCityEnv(Node):
             reward_info['penalty_collision'] = 0.0
         
         # Add collision status to info for debugging - ALWAYS set these, even if False
-        reward_info['is_collision'] = is_colliding
-        reward_info['is_collision_lidar'] = is_colliding_lidar
-        reward_info['is_collision_offroad'] = is_colliding_offroad
-        reward_info['min_lidar_distance'] = min_lidar_dist
-        reward_info['road_distance'] = road_distance
+        # CRITICAL: Set these values directly in reward_info to ensure they're in the final info dict
+        reward_info['is_collision'] = bool(is_colliding)  # Ensure boolean type
+        reward_info['is_collision_lidar'] = bool(is_colliding_lidar)
+        reward_info['is_collision_offroad'] = bool(is_colliding_offroad)
+        reward_info['min_lidar_distance'] = float(min_lidar_dist)
+        reward_info['road_distance'] = float(road_distance)
+        
+        # DEBUG: Log reward_info state immediately after setting it
+        if is_colliding:
+            self.get_logger().info(f"[DEBUG] reward_info after collision: penalty_collision={reward_info.get('penalty_collision')}, is_collision={reward_info.get('is_collision')}")
         
         # 5. Battery penalty (penalty for low battery)
         battery_level = self.battery.get_battery_level()
