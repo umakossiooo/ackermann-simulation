@@ -73,7 +73,8 @@ class RewardLoggingCallback(BaseCallback):
                 # Track collisions
                 if info.get('is_collision', False):
                     collision_count += 1
-                    print(f"[CALLBACK DEBUG] Found collision in step: penalty_collision={info.get('penalty_collision')}, is_collision={info.get('is_collision')}, road_dist={info.get('road_distance')}")
+                    penalty_val = info.get('penalty_collision', 0.0)
+                    print(f"[CALLBACK DEBUG] Found collision: penalty_collision={penalty_val}, adding to sum (current sum={reward_sums['penalty_collision']})")
         
         # Log averages to TensorBoard
         if count > 0:
@@ -96,12 +97,13 @@ class RewardLoggingCallback(BaseCallback):
                 print(f"  Goal:     {reward_sums['reward_goal']/count:+.4f}")
                 print(f"  Off-road:  {reward_sums['penalty_offroad']/count:+.4f}")
                 # For collision, show both average and max (since collisions are rare, average can be misleading)
-                collision_avg = reward_sums['penalty_collision']/count
+                collision_sum = reward_sums['penalty_collision']
+                collision_avg = collision_sum / count if count > 0 else 0.0
                 collision_max = reward_maxes['penalty_collision']
                 if collision_count > 0:
-                    print(f"  Collision: {collision_avg:+.4f} (avg) | {collision_max:+.4f} (max) | {collision_count} collisions in batch")
+                    print(f"  Collision: {collision_avg:+.4f} (avg) | {collision_max:+.4f} (max) | {collision_count} collisions in batch of {count} steps | sum={collision_sum:+.4f}")
                 else:
-                    print(f"  Collision: {collision_avg:+.4f}")
+                    print(f"  Collision: {collision_avg:+.4f} (sum={collision_sum:+.4f}, count={count})")
                 print(f"  Battery:   {reward_sums['penalty_battery']/count:+.4f}")
                 print(f"  Time:      {reward_sums['penalty_time']/count:+.4f}")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)
