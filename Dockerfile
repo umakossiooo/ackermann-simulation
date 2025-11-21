@@ -43,8 +43,10 @@ RUN wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/gz
 # Install Python DRL dependencies
 # Copy requirements file first (for better Docker layer caching)
 # This layer will only rebuild if requirements.txt changes
+# Use BuildKit cache mount to avoid re-downloading packages
 COPY requirements.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip3 install --break-system-packages \
     -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 

@@ -10,6 +10,12 @@ x-ackermann-service: &ackermann_service
     args:
       ROS_DISTRO: jazzy
       GZ_VERSION: harmonic
+    # Enable BuildKit for better caching
+    x-bake:
+      cache-from:
+        - type=local,src=/tmp/.buildx-cache
+      cache-to:
+        - type=local,dest=/tmp/.buildx-cache,mode=max
   image: alitekes1/ackermann_sim:latest
   entrypoint: ["/bin/bash"]
   working_dir: /root/colcon_ws
