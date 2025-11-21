@@ -7,4 +7,5 @@ stable-baselines3>=2.0.0
 torch>=2.0.0
 numpy>=1.24.0
 shapely>=2.0.0
+tensorboard>=2.15.0
 

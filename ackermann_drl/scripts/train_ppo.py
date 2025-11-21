@@ -102,8 +102,15 @@ def main():
     print("Creating environment...")
     env = make_env()
     
-    # Wrap with Monitor for logging
-    monitor_env = Monitor(env, str(log_dir), allow_early_resets=True)
+    # Wrap with Monitor for logging (tensorboard optional)
+    try:
+        monitor_env = Monitor(env, str(log_dir), allow_early_resets=True)
+    except ImportError as e:
+        if 'tensorboard' in str(e).lower():
+            print("Warning: Tensorboard not available, continuing without logging")
+            monitor_env = env
+        else:
+            raise
     
     # Create vectorized environment (single environment)
     vec_env = DummyVecEnv([lambda: monitor_env])
