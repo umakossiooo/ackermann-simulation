@@ -115,13 +115,19 @@ class AckermannCityEnv(Node):
             try:
                 # Get the default context explicitly
                 context = rclpy.get_default_context()
-                executor = SingleThreadedExecutor(context=context)
-                executor.add_node(self)
-                self.executor = executor
+                if context is not None and context.ok():
+                    executor = SingleThreadedExecutor(context=context)
+                    executor.add_node(self)
+                    self.executor = executor
+                    self.get_logger().info("Executor created successfully")
+                else:
+                    self.get_logger().warn("Context is None or invalid, executor not created")
+                    self.executor = None
             except Exception as e:
-                # Silently fail - we'll use fallback
+                self.get_logger().warn(f"Failed to create executor: {e}, will use rclpy.spin_once fallback")
                 self.executor = None
         else:
+            self.get_logger().warn("rclpy not ok, executor not created")
             self.executor = None
         
         self.get_logger().info("AckermannCityEnv initialized (Docker-ready)")
