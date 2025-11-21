@@ -514,11 +514,12 @@ class AckermannCityEnv(Node):
         
         # Check if any scan is too close
         min_distance = np.min(valid_ranges)
-        collision_detected = min_distance < self.collision_threshold
+        # Use <= to catch cases where min_distance exactly equals threshold
+        collision_detected = min_distance <= self.collision_threshold
         
         # Debug: log collision if detected
         if collision_detected:
-            self.get_logger().warn(f"Collision detected! min_distance={min_distance:.3f}m < threshold={self.collision_threshold}m")
+            self.get_logger().warn(f"Collision detected! min_distance={min_distance:.3f}m <= threshold={self.collision_threshold}m")
         
         return collision_detected
     
@@ -564,9 +565,12 @@ class AckermannCityEnv(Node):
                 # First step after reset - initialize prev_distance
                 # No progress reward on first step, but set it for next step
                 reward_info['reward_progress'] = 0.0
+                # Initialize for next step
+                self.prev_distance_to_goal = current_distance
             
-            # Update previous distance (even if None, set it now)
-            self.prev_distance_to_goal = current_distance
+            # Update previous distance for next step
+            if self.prev_distance_to_goal is not None:
+                self.prev_distance_to_goal = current_distance
             
             # 2. Goal reward (reaching goal)
             if self.is_goal_reached():
