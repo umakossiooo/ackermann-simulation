@@ -15,7 +15,7 @@ from pathlib import Path
 import rclpy
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv
 import torch
 
@@ -24,6 +24,64 @@ package_path = Path(__file__).parent.parent
 sys.path.insert(0, str(package_path))
 
 from ackermann_drl.envs.gym_wrapper import AckermannGymEnv
+
+
+class RewardLoggingCallback(BaseCallback):
+    """Callback to log detailed reward breakdown to TensorBoard and console."""
+    
+    def __init__(self, verbose=0, log_interval=100):
+        super().__init__(verbose)
+        self.log_interval = log_interval
+        self.step_count = 0
+        self.reward_keys = [
+            'reward_progress',
+            'reward_goal',
+            'penalty_offroad',
+            'penalty_collision',
+            'penalty_battery',
+            'penalty_time'
+        ]
+    
+    def _on_step(self) -> bool:
+        """Log reward breakdown after each step."""
+        self.step_count += 1
+        
+        # Get infos from the rollout buffer
+        infos = self.locals.get("infos", [])
+        
+        if not infos:
+            return True
+        
+        # Aggregate reward components across all environments
+        reward_sums = {key: 0.0 for key in self.reward_keys}
+        count = 0
+        
+        for info in infos:
+            if isinstance(info, dict):
+                for key in self.reward_keys:
+                    if key in info:
+                        reward_sums[key] += info[key]
+                count += 1
+        
+        # Log averages to TensorBoard
+        if count > 0:
+            for key in self.reward_keys:
+                avg_value = reward_sums[key] / count
+                self.logger.record(f"reward/{key}", avg_value)
+            
+            # Print to console periodically
+            if self.step_count % self.log_interval == 0:
+                print(f"\n[Step {self.step_count}] Reward Breakdown:")
+                print(f"  Progress: {reward_sums['reward_progress']/count:+.4f}")
+                print(f"  Goal:     {reward_sums['reward_goal']/count:+.4f}")
+                print(f"  Off-road:  {reward_sums['penalty_offroad']/count:+.4f}")
+                print(f"  Collision: {reward_sums['penalty_collision']/count:+.4f}")
+                print(f"  Battery:   {reward_sums['penalty_battery']/count:+.4f}")
+                print(f"  Time:      {reward_sums['penalty_time']/count:+.4f}")
+                total = sum(reward_sums[k]/count for k in self.reward_keys)
+                print(f"  Total:     {total:+.4f}\n")
+        
+        return True
 
 
 def make_env():
@@ -155,6 +213,13 @@ def main():
         save_vecnormalize=True
     )
     
+    # Set up reward logging callback
+    reward_callback = RewardLoggingCallback(verbose=1)
+    
+    # Combine callbacks
+    from stable_baselines3.common.callbacks import CallbackList
+    callbacks = CallbackList([checkpoint_callback, reward_callback])
+    
     # Train the agent
     print("=" * 60)
     print("Starting training...")
@@ -172,7 +237,7 @@ def main():
         
         model.learn(
             total_timesteps=args.total_timesteps,
-            callback=checkpoint_callback,
+            callback=callbacks,
             progress_bar=use_progress_bar
         )
         
