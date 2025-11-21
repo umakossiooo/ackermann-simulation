@@ -20,16 +20,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 
 # Install Python package
-# Install the main package directory (ackermann_drl/ackermann_drl/)
+# Use ament_python_install_package - it will install the package correctly
+# The package directory structure matches the project name
 ament_python_install_package(${PROJECT_NAME})
-
-# Install Python subdirectories (envs/, utils/) that are at package root
-# These need to be installed as part of the package
-install(DIRECTORY
-  envs
-  utils
-  DESTINATION lib/python3.12/site-packages/${PROJECT_NAME}/
-)
 
 # Install scripts
 install(PROGRAMS
