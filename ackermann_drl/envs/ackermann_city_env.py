@@ -90,6 +90,23 @@ class AckermannCityEnv(Node):
         self.lidar_downsample_factor = 4  # Downsample 720 to 180 samples
         self.lidar_downsampled_size = 720 // self.lidar_downsample_factor  # 180
         
+        # Reward parameters
+        self.reward_progress_scale = 0.1  # Scale for progress reward
+        self.reward_goal_reached = 10.0  # Reward for reaching goal
+        self.reward_offroad_penalty = -0.1  # Penalty per meter off-road
+        self.reward_collision_penalty = -10.0  # Penalty for collision
+        self.reward_battery_penalty_scale = -0.5  # Penalty scale for low battery
+        self.reward_time_penalty = -0.01  # Small penalty per step
+        
+        # Goal reached threshold (meters)
+        self.goal_reached_threshold = 2.0  # Consider goal reached if within 2m
+        
+        # Collision detection threshold (meters)
+        self.collision_threshold = 0.3  # Consider collision if obstacle within 0.3m
+        
+        # Track previous distance for progress calculation
+        self.prev_distance_to_goal: Optional[float] = None
+        
         # Executor for spinning (minimal - single thread)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self)
@@ -132,6 +149,9 @@ class AckermannCityEnv(Node):
         # Reset battery
         self.battery.reset()
         
+        # Reset previous distance tracking
+        self.prev_distance_to_goal = None
+        
         # Select new random goal
         try:
             self.current_goal = self.delivery_points.get_random_point()
@@ -148,7 +168,12 @@ class AckermannCityEnv(Node):
         for _ in range(5):
             self.spin_once(timeout_sec=0.01)
         
-        # Return observation: 720 scan + 1 battery + 3 goal deltas (Δx, Δy, Δθ) = 724
+        # Initialize previous distance
+        if self.current_goal is not None and self.latest_odom is not None:
+            dx, dy, _ = self.compute_goal_deltas()
+            self.prev_distance_to_goal = np.sqrt(dx**2 + dy**2)
+        
+        # Return observation
         obs = self.get_observation()
         return obs
     
@@ -190,16 +215,19 @@ class AckermannCityEnv(Node):
         # Get observation from sensors (includes battery level)
         observation = self.get_observation()
         
-        # Minimal implementation: return zero reward, not terminated, not truncated
-        reward = 0.0
-        terminated = False
-        truncated = False
+        # Compute reward
+        reward, reward_info = self.compute_reward()
+        
+        # Check termination conditions
+        terminated, truncated = self.check_termination()
+        
         info = {
             'scan_received': self.scan_received,
             'odom_received': self.odom_received,
             'battery_level': self.battery.get_battery_level(),
             'battery_depleted': self.battery.is_depleted(),
-            'current_goal': self.current_goal.get('name') if self.current_goal else None
+            'current_goal': self.current_goal.get('name') if self.current_goal else None,
+            **reward_info  # Add reward breakdown
         }
         
         return observation, reward, terminated, truncated, info
@@ -371,4 +399,137 @@ class AckermannCityEnv(Node):
         idx += 1  # 187
         
         return obs
+    
+    def get_distance_to_goal(self) -> float:
+        """Get current distance to goal.
+        
+        Returns:
+            Distance to goal in meters
+        """
+        if self.current_goal is None or self.latest_odom is None:
+            return float('inf')
+        
+        dx, dy, _ = self.compute_goal_deltas()
+        distance = np.sqrt(dx**2 + dy**2)
+        return distance
+    
+    def is_goal_reached(self) -> bool:
+        """Check if goal is reached.
+        
+        Returns:
+            True if robot is within goal_reached_threshold of goal
+        """
+        distance = self.get_distance_to_goal()
+        return distance <= self.goal_reached_threshold
+    
+    def is_collision(self) -> bool:
+        """Check if robot has collided with obstacle.
+        
+        Returns:
+            True if any LiDAR scan is within collision_threshold
+        """
+        if self.latest_scan is None:
+            return False
+        
+        ranges = np.array(self.latest_scan.ranges)
+        # Filter out inf and nan
+        valid_ranges = ranges[np.isfinite(ranges)]
+        
+        if len(valid_ranges) == 0:
+            return False
+        
+        # Check if any scan is too close
+        min_distance = np.min(valid_ranges)
+        return min_distance < self.collision_threshold
+    
+    def compute_reward(self) -> Tuple[float, Dict[str, float]]:
+        """Compute reward for current step.
+        
+        Reward components:
+        - Progress reward: +reward_progress_scale * (prev_distance - current_distance)
+        - Goal reward: +reward_goal_reached if goal reached
+        - Off-road penalty: -reward_offroad_penalty * road_distance
+        - Collision penalty: -reward_collision_penalty if collision
+        - Battery penalty: -reward_battery_penalty_scale * (1 - battery_level)
+        - Time penalty: -reward_time_penalty (per step)
+        
+        Returns:
+            Tuple of (total_reward, reward_breakdown_dict)
+        """
+        reward = 0.0
+        reward_info = {
+            'reward_progress': 0.0,
+            'reward_goal': 0.0,
+            'penalty_offroad': 0.0,
+            'penalty_collision': 0.0,
+            'penalty_battery': 0.0,
+            'penalty_time': 0.0
+        }
+        
+        # 1. Progress reward (getting closer to goal)
+        if self.current_goal is not None and self.latest_odom is not None:
+            current_distance = self.get_distance_to_goal()
+            
+            if self.prev_distance_to_goal is not None:
+                progress = self.prev_distance_to_goal - current_distance
+                progress_reward = self.reward_progress_scale * progress
+                reward += progress_reward
+                reward_info['reward_progress'] = progress_reward
+            
+            # Update previous distance
+            self.prev_distance_to_goal = current_distance
+            
+            # 2. Goal reward (reaching goal)
+            if self.is_goal_reached():
+                reward += self.reward_goal_reached
+                reward_info['reward_goal'] = self.reward_goal_reached
+        
+        # 3. Off-road penalty
+        road_distance = self.get_road_distance()
+        if road_distance > 0.0:
+            offroad_penalty = self.reward_offroad_penalty * road_distance
+            reward += offroad_penalty
+            reward_info['penalty_offroad'] = offroad_penalty
+        
+        # 4. Collision penalty
+        if self.is_collision():
+            reward += self.reward_collision_penalty
+            reward_info['penalty_collision'] = self.reward_collision_penalty
+        
+        # 5. Battery penalty (penalty for low battery)
+        battery_level = self.battery.get_battery_level()
+        battery_penalty = self.reward_battery_penalty_scale * (1.0 - battery_level)
+        reward += battery_penalty
+        reward_info['penalty_battery'] = battery_penalty
+        
+        # 6. Time penalty (small negative per step)
+        reward += self.reward_time_penalty
+        reward_info['penalty_time'] = self.reward_time_penalty
+        
+        return reward, reward_info
+    
+    def check_termination(self) -> Tuple[bool, bool]:
+        """Check if episode should terminate.
+        
+        Returns:
+            Tuple of (terminated, truncated):
+            - terminated: True if goal reached or collision
+            - truncated: True if battery depleted or max steps (not implemented yet)
+        """
+        terminated = False
+        truncated = False
+        
+        # Terminate if goal reached
+        if self.is_goal_reached():
+            terminated = True
+        
+        # Terminate if collision
+        if self.is_collision():
+            terminated = True
+        
+        # Truncate if battery depleted
+        if self.battery.is_depleted():
+            truncated = True
+        
+        return terminated, truncated
 
