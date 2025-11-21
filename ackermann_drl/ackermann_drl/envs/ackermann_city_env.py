@@ -146,14 +146,19 @@ class AckermannCityEnv(Node):
             try:
                 self.executor.spin_once(timeout_sec=timeout_sec)
             except Exception:
-                # If executor fails, just process callbacks manually via threading
-                pass
+                # If executor fails, use rclpy.spin_once as fallback
+                try:
+                    rclpy.spin_once(self, timeout_sec=timeout_sec)
+                except Exception:
+                    pass
         else:
-            # Fallback: manually trigger callback processing
-            # ROS 2 callbacks are processed automatically when messages arrive
-            # We just need to give the callbacks time to execute
-            import time
-            time.sleep(0.01)  # Small delay to allow callbacks to process
+            # Fallback: use rclpy.spin_once to process callbacks
+            try:
+                rclpy.spin_once(self, timeout_sec=timeout_sec)
+            except Exception:
+                # Last resort: just wait a bit
+                import time
+                time.sleep(0.01)
     
     def reset(self) -> np.ndarray:
         """Reset the environment and return initial observation.
