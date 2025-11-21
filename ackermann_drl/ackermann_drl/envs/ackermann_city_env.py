@@ -151,7 +151,7 @@ class AckermannCityEnv(Node):
         if self.executor is not None:
             try:
                 self.executor.spin_once(timeout_sec=timeout_sec)
-            except Exception:
+            except Exception as e:
                 # If executor fails, use rclpy.spin_once as fallback
                 try:
                     rclpy.spin_once(self, timeout_sec=timeout_sec)
@@ -161,7 +161,7 @@ class AckermannCityEnv(Node):
             # Fallback: use rclpy.spin_once to process callbacks
             try:
                 rclpy.spin_once(self, timeout_sec=timeout_sec)
-            except Exception:
+            except Exception as e:
                 # Last resort: just wait a bit
                 import time
                 time.sleep(0.01)
@@ -246,8 +246,15 @@ class AckermannCityEnv(Node):
         
         # Spin briefly to process any incoming messages
         # Give more time for sensor data to arrive - use longer timeout
-        for _ in range(20):
+        # Reset flags to track if we receive new data
+        scan_before = self.scan_received
+        odom_before = self.odom_received
+        
+        for _ in range(30):
             self.spin_once(timeout_sec=0.05)  # Increased timeout to 50ms per spin
+            # Break early if we got both sensors
+            if self.scan_received and self.odom_received:
+                break
         
         # Update battery based on odometry
         if self.latest_odom is not None:
