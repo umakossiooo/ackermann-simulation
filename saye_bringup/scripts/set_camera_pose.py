@@ -64,7 +64,7 @@ def set_gazebo_camera(cam_x, cam_y, cam_z, quat_x, quat_y, quat_z, quat_w):
     req = (
         f"pose: {{"
         f"position: {{x: {cam_x}, y: {cam_y}, z: {cam_z}}}, "
-        f"orientation: {{x: {quat_x}, y: {quat_y}, z: {quat_z}, w: {quat_w}}"
+        f"orientation: {{x: {quat_x}, y: {quat_y}, z: {quat_z}, w: {quat_w}}}"
         f"}}"
     )
     
