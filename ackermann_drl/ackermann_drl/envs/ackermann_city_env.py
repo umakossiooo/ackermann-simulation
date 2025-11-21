@@ -246,14 +246,15 @@ class AckermannCityEnv(Node):
         
         # Spin briefly to process any incoming messages
         # Give more time for sensor data to arrive - use longer timeout
-        # Reset flags to track if we receive new data
-        scan_before = self.scan_received
-        odom_before = self.odom_received
+        # We need to ensure callbacks are processed, so spin more aggressively
+        import time
+        start_time = time.time()
+        max_wait_time = 0.5  # Wait up to 500ms for sensor data
         
-        for _ in range(30):
-            self.spin_once(timeout_sec=0.05)  # Increased timeout to 50ms per spin
+        while (time.time() - start_time) < max_wait_time:
+            self.spin_once(timeout_sec=0.05)
             # Break early if we got both sensors
-            if self.scan_received and self.odom_received:
+            if self.latest_scan is not None and self.latest_odom is not None:
                 break
         
         # Update battery based on odometry
