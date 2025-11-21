@@ -28,10 +28,11 @@ docker compose exec ackermann_sim bash
 **Option A: Background process (RECOMMENDED for training)**
 ```bash
 # Start Gazebo in background (headless)
+# Note: world:=bari_world.sdf is optional (it's the default)
 docker compose exec -d ackermann_sim bash -c \
   "source /opt/ros/jazzy/setup.bash && \
    source /root/colcon_ws/install/setup.bash && \
-   ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false"
+   ros2 launch saye_bringup saye_spawn.launch.py gui:=false"
 ```
 
 **Option B: Separate terminal (for monitoring)**
@@ -40,7 +41,8 @@ docker compose exec -d ackermann_sim bash -c \
 docker compose exec ackermann_sim bash
 source /opt/ros/jazzy/setup.bash
 source /root/colcon_ws/install/setup.bash
-ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false
+# Note: world:=bari_world.sdf is optional (it's the default)
+ros2 launch saye_bringup saye_spawn.launch.py gui:=false
 # Keep this terminal open - Gazebo runs here
 ```
 
@@ -49,7 +51,8 @@ ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false
 docker compose exec ackermann_sim bash
 source /opt/ros/jazzy/setup.bash
 source /root/colcon_ws/install/setup.bash
-ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf
+# Note: world:=bari_world.sdf is optional (it's the default)
+ros2 launch saye_bringup saye_spawn.launch.py
 ```
 
 ### Step 3: Verify ROS Topics (in training terminal)

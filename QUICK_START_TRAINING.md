@@ -8,10 +8,11 @@
 
 ```bash
 # Start Gazebo in background (headless mode)
+# Note: world:=bari_world.sdf is optional (it's the default)
 docker compose exec -d ackermann_sim bash -c \
   "source /opt/ros/jazzy/setup.bash && \
    source /root/colcon_ws/install/setup.bash && \
-   ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false"
+   ros2 launch saye_bringup saye_spawn.launch.py gui:=false"
 
 # Wait a few seconds for Gazebo to start
 sleep 5
@@ -57,10 +58,11 @@ Create a script to start everything:
 
 # Start Gazebo in background
 echo "Starting Gazebo..."
+# Note: world:=bari_world.sdf is optional (it's the default)
 docker compose exec -d ackermann_sim bash -c \
   "source /opt/ros/jazzy/setup.bash && \
    source /root/colcon_ws/install/setup.bash && \
-   ros2 launch saye_bringup saye_spawn.launch.py world:=bari_world.sdf gui:=false"
+   ros2 launch saye_bringup saye_spawn.launch.py gui:=false"
 
 # Wait for Gazebo to initialize
 echo "Waiting for Gazebo to start..."
