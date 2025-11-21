@@ -254,11 +254,17 @@ class AckermannCityEnv(Node):
         start_time = time.time()
         max_wait_time = 0.5  # Wait up to 500ms for sensor data
         
+        # Track if we received new data
+        scan_received_before = self.scan_received
+        odom_received_before = self.odom_received
+        
         while (time.time() - start_time) < max_wait_time:
             self.spin_once(timeout_sec=0.05)
-            # Break early if we got both sensors
+            # Break early if we got both sensors (check if we received new data)
             if self.latest_scan is not None and self.latest_odom is not None:
-                break
+                # Make sure we actually received new data, not just old data
+                if self.scan_received and self.odom_received:
+                    break
         
         # Update battery based on odometry
         if self.latest_odom is not None:
