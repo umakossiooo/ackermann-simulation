@@ -29,13 +29,15 @@ from ackermann_drl.envs.gym_wrapper import AckermannGymEnv
 class RewardLoggingCallback(BaseCallback):
     """Callback to log detailed reward breakdown to TensorBoard and console."""
     
-    def __init__(self, verbose=0, log_interval=100):
+    def __init__(self, verbose=0, log_interval=25):
         super().__init__(verbose)
-        self.log_interval = log_interval
+        self.log_interval = log_interval  # Print every 25 steps for faster feedback and better visibility
         self.step_count = 0
         self.reward_keys = [
             'reward_progress',
             'reward_goal',
+            'reward_delivery_on_time',
+            'penalty_delivery_late',
             'penalty_offroad',
             'penalty_collision',
             'penalty_battery',
@@ -58,6 +60,9 @@ class RewardLoggingCallback(BaseCallback):
         collision_count = 0  # Count how many steps had collisions
         count = 0
         
+        # Track episode ends to log reward breakdown even for short episodes
+        episode_ended = False
+        
         for info in infos:
             if isinstance(info, dict):
                 for key in self.reward_keys:
@@ -73,8 +78,9 @@ class RewardLoggingCallback(BaseCallback):
                 # Track collisions
                 if info.get('is_collision', False):
                     collision_count += 1
-                    penalty_val = info.get('penalty_collision', 0.0)
-                    print(f"[CALLBACK DEBUG] Found collision: penalty_collision={penalty_val}, adding to sum (current sum={reward_sums['penalty_collision']})")
+                # Check if episode ended (terminated or truncated)
+                if info.get('episode', {}).get('r', None) is not None:
+                    episode_ended = True
         
         # Log averages to TensorBoard
         if count > 0:
@@ -82,8 +88,10 @@ class RewardLoggingCallback(BaseCallback):
                 avg_value = reward_sums[key] / count
                 self.logger.record(f"reward/{key}", avg_value)
             
-            # Print to console periodically
-            if self.step_count % self.log_interval == 0:
+            # Print to console periodically OR when episode ends (for short episodes)
+            should_print = (self.step_count % self.log_interval == 0) or episode_ended
+            
+            if should_print:
                 # Get diagnostic info from first info dict
                 first_info = infos[0] if infos and isinstance(infos[0], dict) else {}
                 has_scan = first_info.get('has_scan', False)
@@ -92,32 +100,57 @@ class RewardLoggingCallback(BaseCallback):
                 road_dist = first_info.get('road_distance', -1.0)
                 min_lidar = first_info.get('min_lidar_distance', -1.0)
                 
-                print(f"\n[Step {self.step_count}] Reward Breakdown:")
-                print(f"  Progress: {reward_sums['reward_progress']/count:+.4f}")
-                print(f"  Goal:     {reward_sums['reward_goal']/count:+.4f}")
-                print(f"  Off-road:  {reward_sums['penalty_offroad']/count:+.4f}")
+                print(f"\n{'='*70}")
+                print(f"[Step {self.step_count}] REWARD BREAKDOWN (averaged over {count} steps)")
+                print(f"{'='*70}")
+                print(f"  ✓ Progress Reward:    {reward_sums['reward_progress']/count:+.6f} (getting closer to goal)")
+                print(f"  ✓ Goal Reward:        {reward_sums['reward_goal']/count:+.6f} (reaching goal)")
+                print(f"  ✓ Delivery On-time:   {reward_sums['reward_delivery_on_time']/count:+.6f} (delivered on time)")
+                print(f"  ✗ Delivery Late:      {reward_sums['penalty_delivery_late']/count:+.6f} (late delivery penalty)")
+                print(f"  ✗ Off-road Penalty:   {reward_sums['penalty_offroad']/count:+.6f} (driving off-road)")
                 # For collision, show both average and max (since collisions are rare, average can be misleading)
                 collision_sum = reward_sums['penalty_collision']
                 collision_avg = collision_sum / count if count > 0 else 0.0
                 collision_max = reward_maxes['penalty_collision']
                 if collision_count > 0:
-                    print(f"  Collision: {collision_avg:+.4f} (avg) | {collision_max:+.4f} (max) | {collision_count} collisions in batch of {count} steps | sum={collision_sum:+.4f}")
+                    print(f"  ✗ Collision Penalty:  {collision_avg:+.6f} (avg) | {collision_max:+.6f} (max) | {collision_count} collisions in {count} steps")
                 else:
-                    print(f"  Collision: {collision_avg:+.4f} (sum={collision_sum:+.4f}, count={count})")
-                print(f"  Battery:   {reward_sums['penalty_battery']/count:+.4f}")
-                print(f"  Time:      {reward_sums['penalty_time']/count:+.4f}")
+                    print(f"  ✗ Collision Penalty:  {collision_avg:+.6f} (no collisions)")
+                print(f"  ✗ Battery Penalty:    {reward_sums['penalty_battery']/count:+.6f} (low battery)")
+                print(f"  ✗ Time Penalty:       {reward_sums['penalty_time']/count:+.6f} (per-step penalty)")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)
-                print(f"  Total:     {total:+.4f}")
+                print(f"{'─'*70}")
+                print(f"  TOTAL REWARD:         {total:+.6f}")
+                print(f"{'='*70}")
                 # Get additional diagnostics
                 velocity = first_info.get('velocity', -1.0) if 'velocity' in first_info else -1.0
                 distance_to_goal = first_info.get('distance_to_goal', -1.0) if 'distance_to_goal' in first_info else -1.0
                 is_collision = first_info.get('is_collision', False)
                 is_collision_lidar = first_info.get('is_collision_lidar', False)
                 is_collision_offroad = first_info.get('is_collision_offroad', False)
-                collision_threshold = 0.5  # From ackermann_city_env
-                offroad_collision_threshold = 0.2  # From ackermann_city_env
-                print(f"  Diagnostics: scan={has_scan}, odom={has_odom}, goal={has_goal}, road_dist={road_dist:.2f}m, min_lidar={min_lidar:.2f}m")
-                print(f"  Collision: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad}), min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m), road_dist={road_dist:.2f}m (offroad_threshold={offroad_collision_threshold}m)")
+                scan_is_fresh = first_info.get('scan_is_fresh', False)
+                odom_is_fresh = first_info.get('odom_is_fresh', False)
+                scan_count = first_info.get('scan_count', 0)
+                odom_count = first_info.get('odom_count', 0)
+                collision_threshold = 0.3  # From ackermann_city_env (reduced for narrow streets)
+                offroad_collision_threshold = 1.0  # From ackermann_city_env (updated to match - only severe off-road triggers collision)
+                # Get delivery time info
+                delivery_elapsed = first_info.get('delivery_elapsed_time', -1.0)
+                delivery_deadline = first_info.get('delivery_deadline', -1.0)
+                delivery_remaining = first_info.get('delivery_time_remaining', -1.0)
+                delivery_on_time = first_info.get('delivery_on_time', False)
+                
+                print(f"  Diagnostics: scan={has_scan} (fresh={scan_is_fresh}, count={scan_count}), odom={has_odom} (fresh={odom_is_fresh}, count={odom_count}), goal={has_goal}")
+                print(f"  Sensors: road_dist={road_dist:.2f}m, min_lidar={min_lidar:.2f}m")
+                if delivery_deadline > 0:
+                    print(f"  Delivery Time: {delivery_elapsed:.1f}s / {delivery_deadline:.1f}s (remaining: {delivery_remaining:.1f}s) | On-time: {delivery_on_time}")
+                # Highlight collisions more prominently
+                if is_collision:
+                    print(f"  ⚠️  COLLISION DETECTED: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad})")
+                    print(f"     min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m), road_dist={road_dist:.2f}m (offroad_threshold={offroad_collision_threshold}m)")
+                    print(f"     Penalty applied: {collision_avg:+.4f} (max={collision_max:+.4f}, count={collision_count})")
+                else:
+                    print(f"  Collision: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad}), min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m), road_dist={road_dist:.2f}m (offroad_threshold={offroad_collision_threshold}m)")
                 if velocity >= 0:
                     print(f"  Car velocity: {velocity:.2f} m/s, distance_to_goal: {distance_to_goal:.2f}m\n")
                 else:

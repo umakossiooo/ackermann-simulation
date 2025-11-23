@@ -301,7 +301,7 @@ def main():
     finally:
         # Cleanup
         if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

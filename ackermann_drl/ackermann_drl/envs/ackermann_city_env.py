@@ -73,28 +73,20 @@ class AckermannCityEnv(Node):
             10
         )
         
-        # State storage
         self.latest_scan: Optional[LaserScan] = None
         self.latest_odom: Optional[Odometry] = None
         self.scan_received = False
         self.odom_received = False
-        # Track timestamps to detect stale data
         self.last_scan_time: Optional[float] = None
         self.last_odom_time: Optional[float] = None
         self.scan_count = 0
         self.odom_count = 0
-        # Track counts before reset to detect new data after reset
         self.scan_count_before_reset = 0
         self.odom_count_before_reset = 0
         
-        # Battery model
         self.battery = BatteryModel(initial_level=1.0, alpha=0.001, beta=0.01)
-        
-        # Delivery points (goals)
         self.delivery_points = DeliveryPoints()
         self.current_goal: Optional[Dict] = None
-        
-        # Roads geometry (for road distance calculation)
         try:
             self.roads_geometry = RoadsGeometry()
             road_count = self.roads_geometry.get_all_roads_count()
