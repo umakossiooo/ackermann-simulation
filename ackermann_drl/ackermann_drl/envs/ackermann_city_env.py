@@ -752,11 +752,24 @@ class AckermannCityEnv(Node):
             reward_info['penalty_collision'] = 0.0
         
         
-        # 5. Battery efficiency system (lenient - encourages efficiency without being strict)
+        # 5. Battery efficiency system (zone-based - rewards high battery, penalizes critical)
         battery_level = self.battery.get_battery_level()
         battery_consumed = self.battery_consumed_this_step
         
-        battery_conservation_reward = 0.1 * battery_level
+        # Zone-based battery reward system
+        if battery_level > 0.8:      # High battery (80-100%)
+            battery_conservation_reward = 0.1
+            battery_zone = "HIGH"
+        elif battery_level > 0.5:   # Medium battery (50-80%)
+            battery_conservation_reward = 0.05
+            battery_zone = "MEDIUM"
+        elif battery_level > 0.2:    # Low battery (20-50%)
+            battery_conservation_reward = 0.01
+            battery_zone = "LOW"
+        else:                         # Critical battery (<20%)
+            battery_conservation_reward = -0.05
+            battery_zone = "CRITICAL"
+        
         reward += battery_conservation_reward
         reward_info['reward_battery_conservation'] = battery_conservation_reward
         
@@ -787,8 +800,22 @@ class AckermannCityEnv(Node):
                     reward_info['penalty_aggressive_change'] = 0.0
             self.prev_velocity_for_efficiency = velocity
         
-        if abs(battery_conservation_reward) > 0.01 or reward_info.get('reward_efficiency', 0.0) > 0.01 or reward_info.get('penalty_high_speed', 0.0) < 0.0 or reward_info.get('penalty_aggressive_change', 0.0) < 0.0:
-            print(f"[REWARD] Step {self.episode_step_count} | Battery: level={battery_level:.3f}, consumed={battery_consumed:.4f} | Conservation: {battery_conservation_reward:.4f}, Efficiency: {reward_info.get('reward_efficiency', 0.0):.4f}, High-speed: {reward_info.get('penalty_high_speed', 0.0):.4f}, Aggressive: {reward_info.get('penalty_aggressive_change', 0.0):.4f}")
+        # Log battery efficiency metrics (always log battery zone, log others if significant)
+        battery_log_parts = [f"Battery: {battery_level*100:.1f}% ({battery_zone}) | Conservation: {battery_conservation_reward:+.4f}"]
+        
+        if reward_info.get('reward_efficiency', 0.0) > 0.01:
+            battery_log_parts.append(f"Efficiency: {reward_info.get('reward_efficiency', 0.0):.4f}")
+        
+        if reward_info.get('penalty_high_speed', 0.0) < 0.0:
+            battery_log_parts.append(f"High-speed: {reward_info.get('penalty_high_speed', 0.0):.4f}")
+        
+        if reward_info.get('penalty_aggressive_change', 0.0) < 0.0:
+            battery_log_parts.append(f"Aggressive: {reward_info.get('penalty_aggressive_change', 0.0):.4f}")
+        
+        if battery_consumed > 0.0:
+            battery_log_parts.append(f"Consumed: {battery_consumed:.4f}")
+        
+        print(f"[REWARD] Step {self.episode_step_count} | {' | '.join(battery_log_parts)}")
         
         reward += self.reward_time_penalty
         reward_info['penalty_time'] = self.reward_time_penalty
