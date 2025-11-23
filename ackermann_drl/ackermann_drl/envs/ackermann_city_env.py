@@ -646,14 +646,14 @@ class AckermannCityEnv(Node):
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
-                reward_info['progress_meters'] = progress  # Store actual progress in meters
-                reward_info['prev_distance'] = self.prev_distance_to_goal
-                reward_info['current_distance'] = current_distance
+                # Debug: log if no progress despite movement
+                if abs(progress) < 0.01 and self.latest_odom is not None:
+                    velocity, _ = self.get_velocity_and_steering()
+                    if velocity > 0.1:  # Car is moving
+                        safe_log(self.get_logger().debug, 
+                            f"[PROGRESS] Car moving ({velocity:.2f} m/s) but no progress: prev={self.prev_distance_to_goal:.2f}m, curr={current_distance:.2f}m, diff={progress:.4f}m")
             else:
                 reward_info['reward_progress'] = 0.0
-                reward_info['progress_meters'] = 0.0
-                reward_info['prev_distance'] = None
-                reward_info['current_distance'] = current_distance
             
             self.prev_distance_to_goal = current_distance
             if self.is_goal_reached():
@@ -707,12 +707,15 @@ class AckermannCityEnv(Node):
         road_distance = -1.0
         
         if self.latest_scan is not None:
-            is_colliding_lidar = self.is_collision()
             try:
                 ranges = np.array(self.latest_scan.ranges)
                 valid_ranges = ranges[np.isfinite(ranges)]
                 if len(valid_ranges) > 0:
                     min_lidar_dist = float(np.min(valid_ranges))
+                    # Check collision AFTER getting min_distance
+                    is_colliding_lidar = min_lidar_dist <= self.collision_threshold
+                    if is_colliding_lidar:
+                        safe_log(self.get_logger().warn, f"[COLLISION] LiDAR collision! min={min_lidar_dist:.3f}m <= threshold={self.collision_threshold}m")
             except:
                 pass
         
@@ -829,9 +832,6 @@ class AckermannCityEnv(Node):
         print(f"  TOTAL REWARD:           {reward:+10.4f}")
         print(f"{'='*70}")
         print(f"  Diagnostics: velocity={velocity:.2f} m/s | dist_to_goal={distance_to_goal:.2f}m | min_lidar={min_lidar_dist:.2f}m | road_dist={road_distance:.2f}m")
-        if reward_info.get('prev_distance') is not None:
-            progress_m = reward_info.get('progress_meters', 0.0)
-            print(f"  Progress: {progress_m:+.4f}m (prev={reward_info.get('prev_distance', 0):.2f}m -> curr={reward_info.get('current_distance', 0):.2f}m)")
         if self.delivery_deadline is not None:
             status = "(LATE)" if self.delivery_elapsed_time > self.delivery_deadline else "(on-time)"
             print(f"  Delivery: {self.delivery_elapsed_time:.1f}s / {self.delivery_deadline:.1f}s {status}")
