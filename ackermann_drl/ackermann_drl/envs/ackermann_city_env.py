@@ -832,6 +832,9 @@ class AckermannCityEnv(Node):
         print(f"  TOTAL REWARD:           {reward:+10.4f}")
         print(f"{'='*70}")
         print(f"  Diagnostics: velocity={velocity:.2f} m/s | dist_to_goal={distance_to_goal:.2f}m | min_lidar={min_lidar_dist:.2f}m | road_dist={road_distance:.2f}m")
+        if reward_info.get('prev_distance') is not None:
+            print(f"  Progress: moved {reward_info.get('progress_meters', 0.0):+.3f}m (prev={reward_info.get('prev_distance', 0.0):.2f}m -> curr={reward_info.get('current_distance', 0.0):.2f}m)")
+        print(f"  Collision Check: min_lidar={min_lidar_dist:.2f}m vs threshold={self.collision_threshold:.2f}m {'[COLLISION!]' if is_colliding else '[OK]'}")
         if self.delivery_deadline is not None:
             status = "(LATE)" if self.delivery_elapsed_time > self.delivery_deadline else "(on-time)"
             print(f"  Delivery: {self.delivery_elapsed_time:.1f}s / {self.delivery_deadline:.1f}s {status}")
