@@ -84,7 +84,7 @@ class AckermannCityEnv(Node):
         self.scan_count_before_reset = 0
         self.odom_count_before_reset = 0
         
-        self.battery = BatteryModel(initial_level=1.0, alpha=0.001, beta=0.01)
+        self.battery = BatteryModel(initial_level=1.0, alpha=0.001, beta=0.01, vehicle_weight=1000.0)
         self.delivery_points = DeliveryPoints()
         self.current_goal: Optional[Dict] = None
         try:
