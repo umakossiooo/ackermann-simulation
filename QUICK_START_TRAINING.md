@@ -146,3 +146,4 @@ ros2 topic echo /tf --once
 
 **Training won't work without Gazebo running!**
 
+tensorboard --logdir /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/tensorboard --host 0.0.0.0 --port 6006
