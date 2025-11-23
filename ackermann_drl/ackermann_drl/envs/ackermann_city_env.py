@@ -797,6 +797,13 @@ class AckermannCityEnv(Node):
         reward += self.reward_time_penalty
         reward_info['penalty_time'] = self.reward_time_penalty
         
+        # Get diagnostic info
+        velocity = -1.0
+        distance_to_goal = -1.0
+        if self.latest_odom is not None:
+            velocity, _ = self.get_velocity_and_steering()
+            distance_to_goal = self.get_distance_to_goal()
+        
         # Print formatted reward breakdown
         print(f"\n{'='*70}")
         print(f"STEP #{self.episode_step_count} - REWARD BREAKDOWN:")
@@ -805,7 +812,7 @@ class AckermannCityEnv(Node):
         print(f"  Goal Reward:            {reward_info.get('reward_goal', 0.0):+10.4f}")
         print(f"  Delivery On-time:       {reward_info.get('reward_delivery_on_time', 0.0):+10.4f}")
         print(f"  Battery Conservation:   {reward_info.get('reward_battery_conservation', 0.0):+10.4f}")
-        print(f"  Efficiency Reward:     {reward_info.get('reward_efficiency', 0.0):+10.4f}")
+        print(f"  Efficiency Reward:      {reward_info.get('reward_efficiency', 0.0):+10.4f}")
         print(f"  Delivery Late Penalty:  {reward_info.get('penalty_delivery_late', 0.0):+10.4f}")
         print(f"  Off-road Penalty:       {reward_info.get('penalty_offroad', 0.0):+10.4f}")
         print(f"  Collision Penalty:      {reward_info.get('penalty_collision', 0.0):+10.4f}")
@@ -814,6 +821,11 @@ class AckermannCityEnv(Node):
         print(f"  Time Penalty:           {reward_info.get('penalty_time', 0.0):+10.4f}")
         print(f"{'-'*70}")
         print(f"  TOTAL REWARD:           {reward:+10.4f}")
+        print(f"{'='*70}")
+        print(f"  Diagnostics: velocity={velocity:.2f} m/s | dist_to_goal={distance_to_goal:.2f}m | min_lidar={min_lidar_dist:.2f}m | road_dist={road_distance:.2f}m")
+        if self.delivery_deadline is not None:
+            status = "(LATE)" if self.delivery_elapsed_time > self.delivery_deadline else "(on-time)"
+            print(f"  Delivery: {self.delivery_elapsed_time:.1f}s / {self.delivery_deadline:.1f}s {status}")
         print(f"{'='*70}\n")
         
         return reward, reward_info
