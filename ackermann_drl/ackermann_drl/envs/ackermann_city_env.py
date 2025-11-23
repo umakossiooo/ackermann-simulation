@@ -67,7 +67,6 @@ class AckermannCityEnv(Node):
             10
         )
         
-        # Publishers - publishes to same topic as saye_control
         self.cmd_vel_pub = self.create_publisher(
             Twist,
             '/cmd_vel',
