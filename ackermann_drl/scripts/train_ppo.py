@@ -37,10 +37,13 @@ class RewardLoggingCallback(BaseCallback):
             'reward_progress',
             'reward_goal',
             'reward_delivery_on_time',
+            'reward_battery_conservation',
+            'reward_efficiency',
             'penalty_delivery_late',
             'penalty_offroad',
             'penalty_collision',
-            'penalty_battery',
+            'penalty_high_speed',
+            'penalty_aggressive_change',
             'penalty_time'
         ]
     
@@ -106,9 +109,10 @@ class RewardLoggingCallback(BaseCallback):
                 print(f"  ✓ Progress Reward:    {reward_sums['reward_progress']/count:+.6f} (getting closer to goal)")
                 print(f"  ✓ Goal Reward:        {reward_sums['reward_goal']/count:+.6f} (reaching goal)")
                 print(f"  ✓ Delivery On-time:   {reward_sums['reward_delivery_on_time']/count:+.6f} (delivered on time)")
+                print(f"  ✓ Battery Conservation: {reward_sums['reward_battery_conservation']/count:+.6f} (maintaining high battery)")
+                print(f"  ✓ Efficiency Reward:  {reward_sums['reward_efficiency']/count:+.6f} (progress per battery)")
                 print(f"  ✗ Delivery Late:      {reward_sums['penalty_delivery_late']/count:+.6f} (late delivery penalty)")
                 print(f"  ✗ Off-road Penalty:   {reward_sums['penalty_offroad']/count:+.6f} (driving off-road)")
-                # For collision, show both average and max (since collisions are rare, average can be misleading)
                 collision_sum = reward_sums['penalty_collision']
                 collision_avg = collision_sum / count if count > 0 else 0.0
                 collision_max = reward_maxes['penalty_collision']
@@ -116,7 +120,8 @@ class RewardLoggingCallback(BaseCallback):
                     print(f"  ✗ Collision Penalty:  {collision_avg:+.6f} (avg) | {collision_max:+.6f} (max) | {collision_count} collisions in {count} steps")
                 else:
                     print(f"  ✗ Collision Penalty:  {collision_avg:+.6f} (no collisions)")
-                print(f"  ✗ Battery Penalty:    {reward_sums['penalty_battery']/count:+.6f} (low battery)")
+                print(f"  ✗ High Speed Penalty: {reward_sums['penalty_high_speed']/count:+.6f} (excessive speed >3.0 m/s)")
+                print(f"  ✗ Aggressive Change:  {reward_sums['penalty_aggressive_change']/count:+.6f} (wasteful velocity changes)")
                 print(f"  ✗ Time Penalty:       {reward_sums['penalty_time']/count:+.6f} (per-step penalty)")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)
                 print(f"{'─'*70}")

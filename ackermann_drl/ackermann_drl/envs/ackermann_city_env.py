@@ -122,6 +122,8 @@ class AckermannCityEnv(Node):
         self.step_count = 0
         self.episode_count = 0
         self.episode_step_count = 0
+        self.prev_velocity_for_efficiency = None
+        self.battery_consumed_this_step = 0.0
         self.executor = None
         if rclpy.ok():
             try:
@@ -204,6 +206,8 @@ class AckermannCityEnv(Node):
         self.battery.reset()
         self.prev_distance_to_goal = None
         self.episode_step_count = 0
+        self.prev_velocity_for_efficiency = None
+        self.battery_consumed_this_step = 0.0
         self.delivery_start_time = time.time()
         self.delivery_elapsed_time = 0.0
         self.delivery_on_time = False
@@ -295,7 +299,12 @@ class AckermannCityEnv(Node):
             position = np.array([pos.x, pos.y, pos.z])
             twist = self.latest_odom.twist.twist
             velocity = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+            battery_before = self.battery.get_battery_level()
             self.battery.update(position, velocity, dt=0.1)
+            battery_after = self.battery.get_battery_level()
+            self.battery_consumed_this_step = battery_before - battery_after
+        else:
+            self.battery_consumed_this_step = 0.0
         
         self.episode_step_count += 1
         reward, reward_info = self.compute_reward()
@@ -590,10 +599,13 @@ class AckermannCityEnv(Node):
             'reward_progress': 0.0,
             'reward_goal': 0.0,
             'reward_delivery_on_time': 0.0,
+            'reward_battery_conservation': 0.0,
+            'reward_efficiency': 0.0,
             'penalty_delivery_late': 0.0,
             'penalty_offroad': 0.0,
             'penalty_collision': 0.0,
-            'penalty_battery': 0.0,
+            'penalty_high_speed': 0.0,
+            'penalty_aggressive_change': 0.0,
             'penalty_time': 0.0,
             'delivery_elapsed_time': 0.0,
             'delivery_deadline': 0.0,
@@ -740,13 +752,43 @@ class AckermannCityEnv(Node):
             reward_info['penalty_collision'] = 0.0
         
         
-        # 5. Battery penalty (penalty for low battery)
+        # 5. Battery efficiency system (lenient - encourages efficiency without being strict)
         battery_level = self.battery.get_battery_level()
-        battery_penalty = self.reward_battery_penalty_scale * (1.0 - battery_level)
-        reward += battery_penalty
-        reward_info['penalty_battery'] = battery_penalty
-        if abs(battery_penalty) > 0.0001:
-            print(f"[REWARD] Step {self.episode_step_count} | Battery: level={battery_level:.3f} | Penalty: {battery_penalty:.4f}")
+        battery_consumed = self.battery_consumed_this_step
+        
+        battery_conservation_reward = 0.1 * battery_level
+        reward += battery_conservation_reward
+        reward_info['reward_battery_conservation'] = battery_conservation_reward
+        
+        if battery_consumed > 0.0 and reward_info.get('reward_progress', 0.0) > 0.01:
+            efficiency_reward = 0.2 * (reward_info['reward_progress'] / battery_consumed)
+            reward += efficiency_reward
+            reward_info['reward_efficiency'] = efficiency_reward
+        else:
+            reward_info['reward_efficiency'] = 0.0
+        
+        if self.latest_odom is not None:
+            velocity, steering = self.get_velocity_and_steering()
+            
+            if velocity > 3.0:
+                high_speed_penalty = -0.02 * (velocity - 3.0)
+                reward += high_speed_penalty
+                reward_info['penalty_high_speed'] = high_speed_penalty
+            else:
+                reward_info['penalty_high_speed'] = 0.0
+            
+            if self.prev_velocity_for_efficiency is not None:
+                velocity_change = abs(velocity - self.prev_velocity_for_efficiency)
+                if velocity_change > 1.0:
+                    aggressive_penalty = -0.05 * (velocity_change - 1.0)
+                    reward += aggressive_penalty
+                    reward_info['penalty_aggressive_change'] = aggressive_penalty
+                else:
+                    reward_info['penalty_aggressive_change'] = 0.0
+            self.prev_velocity_for_efficiency = velocity
+        
+        if abs(battery_conservation_reward) > 0.01 or reward_info.get('reward_efficiency', 0.0) > 0.01 or reward_info.get('penalty_high_speed', 0.0) < 0.0 or reward_info.get('penalty_aggressive_change', 0.0) < 0.0:
+            print(f"[REWARD] Step {self.episode_step_count} | Battery: level={battery_level:.3f}, consumed={battery_consumed:.4f} | Conservation: {battery_conservation_reward:.4f}, Efficiency: {reward_info.get('reward_efficiency', 0.0):.4f}, High-speed: {reward_info.get('penalty_high_speed', 0.0):.4f}, Aggressive: {reward_info.get('penalty_aggressive_change', 0.0):.4f}")
         
         reward += self.reward_time_penalty
         reward_info['penalty_time'] = self.reward_time_penalty
