@@ -359,7 +359,7 @@ def main():
         env.close()
         
         if rclpy.ok():
-        rclpy.shutdown()
+            rclpy.shutdown()
         
         print("✓ Cleanup complete")
 
