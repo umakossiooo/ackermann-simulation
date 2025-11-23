@@ -181,6 +181,75 @@ class RoadsGeometry:
         
         return min_distance, nearest_road
     
+    def get_road_heading_at_point(self, x: float, y: float) -> Tuple[float, Optional[LineString]]:
+        """Get desired heading from nearest road at point (x, y).
+        
+        Args:
+            x: East coordinate (meters)
+            y: North coordinate (meters)
+            
+        Returns:
+            Tuple of (heading in radians, nearest polyline or None)
+            Heading is 0.0 if no road found or polyline is invalid.
+            Heading is in range [-π, π], where 0 is east, π/2 is north.
+        """
+        if not self.roads_polylines:
+            return 0.0, None
+        
+        point = Point(x, y)
+        min_distance = float('inf')
+        nearest_polyline = None
+        
+        # Find nearest polyline
+        for polyline in self.roads_polylines:
+            distance = point.distance(polyline)
+            if distance < min_distance:
+                min_distance = distance
+                nearest_polyline = polyline
+        
+        if nearest_polyline is None:
+            return 0.0, None
+        
+        # Project point onto polyline
+        try:
+            # Get the point on the polyline closest to the query point
+            projected_point = nearest_polyline.interpolate(nearest_polyline.project(point))
+            
+            # Get coordinates of projected point
+            proj_x = projected_point.x
+            proj_y = projected_point.y
+            
+            # Find the segment containing the projected point
+            coords = list(nearest_polyline.coords)
+            
+            # Find segment that contains the projected point
+            for i in range(len(coords) - 1):
+                p1 = Point(coords[i])
+                p2 = Point(coords[i + 1])
+                segment = LineString([p1, p2])
+                
+                # Check if projected point is on this segment
+                if segment.distance(projected_point) < 0.01:  # Tolerance
+                    # Calculate heading from segment direction
+                    dx = coords[i + 1][0] - coords[i][0]  # east
+                    dy = coords[i + 1][1] - coords[i][1]  # north
+                    
+                    # Heading: atan2(dy, dx) where 0 is east, π/2 is north
+                    heading = math.atan2(dy, dx)
+                    return heading, nearest_polyline
+            
+            # Fallback: use direction from first to last point
+            if len(coords) >= 2:
+                dx = coords[-1][0] - coords[0][0]
+                dy = coords[-1][1] - coords[0][1]
+                heading = math.atan2(dy, dx)
+                return heading, nearest_polyline
+            
+            return 0.0, nearest_polyline
+            
+        except Exception:
+            return 0.0, nearest_polyline
+    
     def get_projection_center(self) -> Tuple[float, float, float]:
         """Get the ENU projection center.
         
