@@ -126,6 +126,38 @@ class DeliveryPoints:
         """
         return len(self.delivery_points)
     
+    def get_next_point(self, current_point: Optional[Dict] = None) -> Optional[Dict]:
+        """Get the next delivery point in sequence.
+        
+        Args:
+            current_point: Current delivery point dictionary. If None, returns first point.
+            
+        Returns:
+            Next delivery point dictionary, or None if no more points
+        """
+        if not self.delivery_points:
+            return None
+        
+        if current_point is None:
+            # Return first point if no current point
+            return self.delivery_points[0]
+        
+        # Find current point index
+        current_id = current_point.get('id')
+        current_idx = None
+        for i, point in enumerate(self.delivery_points):
+            if point.get('id') == current_id:
+                current_idx = i
+                break
+        
+        if current_idx is None:
+            # Current point not found, return first point
+            return self.delivery_points[0]
+        
+        # Get next point (wrap around to first if at end)
+        next_idx = (current_idx + 1) % len(self.delivery_points)
+        return self.delivery_points[next_idx]
+    
     def get_point_position(self, point: Dict) -> Tuple[float, float, float]:
         """Extract position from delivery point.
         
