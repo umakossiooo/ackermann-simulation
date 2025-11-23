@@ -43,4 +43,6 @@ services:
       RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
       ROS_DISABLE_SHARED_MEMORY: "1"
     volumes: *shared_volumes
+    ports:
+      - "6006:6006"  # TensorBoard port
 
