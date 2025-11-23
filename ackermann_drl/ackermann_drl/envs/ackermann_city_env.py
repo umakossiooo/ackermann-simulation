@@ -108,7 +108,7 @@ class AckermannCityEnv(Node):
         self.reward_battery_penalty_scale = -0.5
         self.reward_time_penalty = -0.01
         self.goal_reached_threshold = 2.0
-        self.collision_threshold = 0.3
+        self.collision_threshold = 1.5
         self.offroad_collision_threshold = 1.0
         
         self.prev_distance_to_goal: Optional[float] = None
@@ -646,23 +646,20 @@ class AckermannCityEnv(Node):
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
-                print(f"[REWARD] Step {self.episode_step_count} | Progress: {progress_reward:+.4f} (moved {progress:+.2f}m closer, dist={current_distance:.2f}m)")
             else:
                 reward_info['reward_progress'] = 0.0
-                print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no previous distance, dist={current_distance:.2f}m)")
             
             self.prev_distance_to_goal = current_distance
             if self.is_goal_reached():
                 reward += self.reward_goal_reached
                 reward_info['reward_goal'] = self.reward_goal_reached
-                print(f"[REWARD] Step {self.episode_step_count} | GOAL REACHED! Reward: +{self.reward_goal_reached:.4f}")
+                safe_log(self.get_logger().info, f"[GOAL] Goal reached! Reward: +{self.reward_goal_reached:.4f}")
                 
                 if self.delivery_deadline is not None and self.delivery_elapsed_time <= self.delivery_deadline:
                     reward += self.reward_delivery_on_time
                     reward_info['reward_delivery_on_time'] = self.reward_delivery_on_time
                     self.delivery_on_time = True
                     reward_info['delivery_on_time'] = True
-                    print(f"[REWARD] Step {self.episode_step_count} | ON-TIME DELIVERY! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Reward: +{self.reward_delivery_on_time:.4f}")
                     safe_log(self.get_logger().info, 
                         f"[DELIVERY] On-time delivery! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Reward: +{self.reward_delivery_on_time}")
                 elif self.delivery_deadline is not None:
@@ -672,7 +669,6 @@ class AckermannCityEnv(Node):
                     reward_info['penalty_delivery_late'] = late_penalty
                     self.delivery_on_time = False
                     reward_info['delivery_on_time'] = False
-                    print(f"[REWARD] Step {self.episode_step_count} | LATE DELIVERY! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Late by: {seconds_late:.1f}s | Penalty: {late_penalty:.4f}")
                     safe_log(self.get_logger().warn,
                         f"[DELIVERY] Late delivery! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Late by: {seconds_late:.1f}s | Penalty: {late_penalty:.2f}")
                 else:
@@ -684,13 +680,10 @@ class AckermannCityEnv(Node):
                     reward += late_penalty
                     reward_info['penalty_delivery_late'] = late_penalty
                     reward_info['delivery_on_time'] = False
-                    print(f"[REWARD] Step {self.episode_step_count} | Running late: {seconds_late:.1f}s past deadline | Penalty: {late_penalty:.4f}")
         elif not has_goal:
             reward_info['reward_progress'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no goal)")
         elif not has_odom:
             reward_info['reward_progress'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no odometry)")
         if has_odom:
             road_distance = self.get_road_distance()
             if road_distance > 0.0:
@@ -699,10 +692,8 @@ class AckermannCityEnv(Node):
                 reward_info['penalty_offroad'] = offroad_penalty
             else:
                 reward_info['penalty_offroad'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance={road_distance:.2f}m | Penalty: {reward_info.get('penalty_offroad', 0.0):+.4f}")
         else:
             reward_info['penalty_offroad'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance=N/A | Penalty: +0.0000 (no odometry)")
         
         is_colliding_lidar = False
         is_colliding_offroad = False
@@ -744,15 +735,13 @@ class AckermannCityEnv(Node):
                 collision_types.append(f"LiDAR (min={min_lidar_dist:.2f}m)")
             if is_colliding_offroad:
                 collision_types.append(f"Off-road (dist={road_distance:.2f}m)")
-            print(f"\n[REWARD] Step {self.episode_step_count} | COLLISION DETECTED! Type: {', '.join(collision_types)} | Penalty: {self.reward_collision_penalty:.4f}\n")
+            safe_log(self.get_logger().warn, f"[COLLISION] Collision detected! Type: {', '.join(collision_types)} | Penalty: {self.reward_collision_penalty:.4f}")
             if is_colliding_lidar:
                 safe_log(self.get_logger().warn, f"[COLLISION] LiDAR collision detected! min_distance={min_lidar_dist:.3f}m <= threshold={self.collision_threshold}m | Penalty: {self.reward_collision_penalty}")
             if is_colliding_offroad:
                 safe_log(self.get_logger().warn, f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m | Penalty: {self.reward_collision_penalty}")
-            safe_log(self.get_logger().info, f"[REWARD] Collision penalty applied: {self.reward_collision_penalty} (lidar={is_colliding_lidar}, offroad={is_colliding_offroad})")
         else:
             reward_info['penalty_collision'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Collision: None | Penalty: +0.0000")
         
         
         # 5. Battery efficiency system (zone-based - rewards high battery, penalizes critical)
@@ -803,28 +792,29 @@ class AckermannCityEnv(Node):
                     reward_info['penalty_aggressive_change'] = 0.0
             self.prev_velocity_for_efficiency = velocity
         
-        # Log battery efficiency metrics (always log ALL components)
-        battery_log_parts = [f"Battery: {battery_level*100:.1f}% ({battery_zone}) | Conservation: {battery_conservation_reward:+.4f}"]
-        
-        # Always log efficiency (even if 0)
-        battery_log_parts.append(f"Efficiency: {reward_info.get('reward_efficiency', 0.0):+.4f}")
-        
-        # Always log high-speed penalty (even if 0)
-        battery_log_parts.append(f"High-speed: {reward_info.get('penalty_high_speed', 0.0):+.4f}")
-        
-        # Always log aggressive change penalty (even if 0)
-        battery_log_parts.append(f"Aggressive: {reward_info.get('penalty_aggressive_change', 0.0):+.4f}")
-        
-        # Always log battery consumed (even if 0)
-        battery_log_parts.append(f"Consumed: {battery_consumed:.4f}")
-        
-        print(f"[REWARD] Step {self.episode_step_count} | {' | '.join(battery_log_parts)}")
+        # Battery info stored in reward_info, will be shown in breakdown
         
         reward += self.reward_time_penalty
         reward_info['penalty_time'] = self.reward_time_penalty
-        print(f"[REWARD] Step {self.episode_step_count} | Time penalty: {self.reward_time_penalty:.4f} (per step)")
         
-        print(f"[REWARD] Step {self.episode_step_count} | TOTAL REWARD: {reward:+.4f}")
+        # Print formatted reward breakdown
+        print(f"\n{'='*70}")
+        print(f"STEP #{self.episode_step_count} - REWARD BREAKDOWN:")
+        print(f"{'='*70}")
+        print(f"  Progress Reward:        {reward_info.get('reward_progress', 0.0):+10.4f}")
+        print(f"  Goal Reward:            {reward_info.get('reward_goal', 0.0):+10.4f}")
+        print(f"  Delivery On-time:       {reward_info.get('reward_delivery_on_time', 0.0):+10.4f}")
+        print(f"  Battery Conservation:   {reward_info.get('reward_battery_conservation', 0.0):+10.4f}")
+        print(f"  Efficiency Reward:     {reward_info.get('reward_efficiency', 0.0):+10.4f}")
+        print(f"  Delivery Late Penalty:  {reward_info.get('penalty_delivery_late', 0.0):+10.4f}")
+        print(f"  Off-road Penalty:       {reward_info.get('penalty_offroad', 0.0):+10.4f}")
+        print(f"  Collision Penalty:      {reward_info.get('penalty_collision', 0.0):+10.4f}")
+        print(f"  High Speed Penalty:     {reward_info.get('penalty_high_speed', 0.0):+10.4f}")
+        print(f"  Aggressive Change:      {reward_info.get('penalty_aggressive_change', 0.0):+10.4f}")
+        print(f"  Time Penalty:           {reward_info.get('penalty_time', 0.0):+10.4f}")
+        print(f"{'-'*70}")
+        print(f"  TOTAL REWARD:           {reward:+10.4f}")
+        print(f"{'='*70}\n")
         
         return reward, reward_info
     
