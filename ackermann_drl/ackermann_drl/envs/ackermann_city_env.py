@@ -690,7 +690,7 @@ class AckermannCityEnv(Node):
             print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no goal)")
         elif not has_odom:
             reward_info['reward_progress'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no odom)")
+            print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no odometry)")
         if has_odom:
             road_distance = self.get_road_distance()
             if road_distance > 0.0:
@@ -702,7 +702,7 @@ class AckermannCityEnv(Node):
             print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance={road_distance:.2f}m | Penalty: {reward_info.get('penalty_offroad', 0.0):+.4f}")
         else:
             reward_info['penalty_offroad'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance=N/A | Penalty: +0.0000 (no odom)")
+            print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance=N/A | Penalty: +0.0000 (no odometry)")
         
         is_colliding_lidar = False
         is_colliding_offroad = False
@@ -752,7 +752,7 @@ class AckermannCityEnv(Node):
             safe_log(self.get_logger().info, f"[REWARD] Collision penalty applied: {self.reward_collision_penalty} (lidar={is_colliding_lidar}, offroad={is_colliding_offroad})")
         else:
             reward_info['penalty_collision'] = 0.0
-            print(f"[REWARD] Step {self.episode_step_count} | Collision: None (min_lidar={min_lidar_dist:.2f}m, road_dist={road_distance:.2f}m) | Penalty: +0.0000")
+            print(f"[REWARD] Step {self.episode_step_count} | Collision: None | Penalty: +0.0000")
         
         
         # 5. Battery efficiency system (zone-based - rewards high battery, penalizes critical)
