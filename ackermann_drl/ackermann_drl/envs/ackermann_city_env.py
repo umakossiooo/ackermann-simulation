@@ -21,6 +21,16 @@ from ackermann_drl.utils.delivery_points import DeliveryPoints
 from ackermann_drl.utils.roads_geometry import RoadsGeometry
 
 
+def safe_log(logger_func, message: str):
+    """Safely log a message, handling invalid ROS context."""
+    try:
+        if rclpy.ok():
+            logger_func(message)
+    except Exception:
+        # Silently ignore logging errors when context is invalid
+        pass
+
+
 class AckermannCityEnv(Node):
     """ROS 2 environment for Ackermann vehicle DRL training.
     
@@ -70,6 +80,14 @@ class AckermannCityEnv(Node):
         self.latest_odom: Optional[Odometry] = None
         self.scan_received = False
         self.odom_received = False
+        # Track timestamps to detect stale data
+        self.last_scan_time: Optional[float] = None
+        self.last_odom_time: Optional[float] = None
+        self.scan_count = 0
+        self.odom_count = 0
+        # Track counts before reset to detect new data after reset
+        self.scan_count_before_reset = 0
+        self.odom_count_before_reset = 0
         
         # Battery model
         self.battery = BatteryModel(initial_level=1.0, alpha=0.001, beta=0.01)
@@ -81,9 +99,13 @@ class AckermannCityEnv(Node):
         # Roads geometry (for road distance calculation)
         try:
             self.roads_geometry = RoadsGeometry()
-            self.get_logger().info("Roads geometry loaded successfully")
+            road_count = self.roads_geometry.get_all_roads_count()
+            self.get_logger().info(f"Roads geometry loaded successfully: {road_count} roads")
+            if road_count == 0:
+                self.get_logger().error("CRITICAL: No roads loaded! Off-road collision detection will NOT work!")
         except Exception as e:
-            self.get_logger().warn(f"Failed to load roads geometry: {e}. Road distance will be zero.")
+            self.get_logger().error(f"CRITICAL: Failed to load roads geometry: {e}. Off-road collision detection will NOT work!")
+            self.get_logger().error("This means the car can crash into sidewalks without penalty!")
             self.roads_geometry = None
         
         # Observation parameters
@@ -91,10 +113,11 @@ class AckermannCityEnv(Node):
         self.lidar_downsampled_size = 720 // self.lidar_downsample_factor  # 180
         
         # Reward parameters
-        self.reward_progress_scale = 0.1  # Scale for progress reward
-        self.reward_goal_reached = 10.0  # Reward for reaching goal
-        self.reward_offroad_penalty = -0.1  # Penalty per meter off-road
-        self.reward_collision_penalty = -10.0  # Penalty for collision
+        # Increased progress reward to guide agent better toward goals
+        self.reward_progress_scale = 1.0  # Increased from 0.1 to give stronger guidance toward goal
+        self.reward_goal_reached = 50.0  # Increased from 10.0 to make goal more attractive
+        self.reward_offroad_penalty = -0.05  # Reduced from -0.1 to be less harsh (gentle guidance back to road)
+        self.reward_collision_penalty = -20.0  # Increased from -10.0 to strongly discourage collisions
         self.reward_battery_penalty_scale = -0.5  # Penalty scale for low battery
         self.reward_time_penalty = -0.01  # Small penalty per step
         
@@ -104,11 +127,25 @@ class AckermannCityEnv(Node):
         # Collision detection threshold (meters)
         # Note: LiDAR might not detect low obstacles (sidewalks) perfectly, so we use a more aggressive threshold
         # Also check road distance as a proxy for collision with curbs/sidewalks
-        self.collision_threshold = 0.5  # Consider collision if obstacle within 0.5m (increased for better sidewalk detection)
-        self.offroad_collision_threshold = 0.2  # If off-road by more than this, consider it a collision with sidewalk/curb (lowered for better detection)
+        # Adjusted for narrow streets - only trigger on very close obstacles
+        self.collision_threshold = 0.3  # Consider collision if obstacle within 0.3m (reduced from 0.5m for narrow streets)
+        self.offroad_collision_threshold = 1.0  # If off-road by more than 1.0m, consider it a collision with sidewalk/curb (increased to avoid false positives on narrow streets)
         
         # Track previous distance for progress calculation
         self.prev_distance_to_goal: Optional[float] = None
+        
+        # Delivery deadline tracking
+        self.delivery_start_time: Optional[float] = None  # When delivery started (reset time)
+        self.delivery_deadline: Optional[float] = None  # Deadline in seconds from start
+        self.delivery_elapsed_time: float = 0.0  # Time elapsed since delivery started
+        self.delivery_on_time: bool = False  # Whether delivery was completed on time
+        self.reward_delivery_on_time = 30.0  # Reward for delivering on time
+        self.reward_delivery_late_penalty = -10.0  # Penalty per second late (if late)
+        
+        # Step and episode counters for tracking
+        self.step_count = 0
+        self.episode_count = 0
+        self.episode_step_count = 0  # Steps within current episode (resets on reset())
         
         # Executor for spinning (minimal - single thread)
         # Create executor - it will use the default context from rclpy.init()
@@ -124,13 +161,14 @@ class AckermannCityEnv(Node):
                     self.executor = executor
                     self.get_logger().info("Executor created successfully")
                 else:
-                    self.get_logger().warn("Context is None or invalid, executor not created")
+                    self.get_logger().warn("Context is None or invalid, executor not created - will use rclpy.spin_once")
                     self.executor = None
             except Exception as e:
                 self.get_logger().warn(f"Failed to create executor: {e}, will use rclpy.spin_once fallback")
                 self.executor = None
         else:
-            self.get_logger().warn("rclpy not ok, executor not created")
+            self.get_logger().error("CRITICAL: rclpy not ok during initialization! ROS context is invalid!")
+            self.get_logger().error("This will prevent the environment from working. Check ROS initialization.")
             self.executor = None
         
         self.get_logger().info("AckermannCityEnv initialized (Docker-ready)")
@@ -139,11 +177,15 @@ class AckermannCityEnv(Node):
         """Callback for laser scan messages."""
         self.latest_scan = msg
         self.scan_received = True
+        self.last_scan_time = time.time()
+        self.scan_count += 1
     
     def _odom_callback(self, msg: Odometry):
         """Callback for odometry messages."""
         self.latest_odom = msg
         self.odom_received = True
+        self.last_odom_time = time.time()
+        self.odom_count += 1
     
     def spin_once(self, timeout_sec: float = 0.1):
         """Spin executor once to process callbacks.
@@ -177,12 +219,22 @@ class AckermannCityEnv(Node):
         Returns:
             Initial observation array with complete observation vector
         """
-        self.get_logger().info("Resetting environment")
-        # Reset state storage
-        self.latest_scan = None
-        self.latest_odom = None
+        self.episode_count += 1
+        self.step_count = 0
+        print(f"\n{'='*80}")
+        print(f"EPISODE {self.episode_count} STARTED - Resetting environment")
+        print(f"{'='*80}\n")
+        safe_log(self.get_logger().info, "Resetting environment")
+        # DON'T reset latest_scan and latest_odom to None - keep stale data if available
+        # This allows rewards to be computed even if new data isn't received immediately
+        # Only reset the flags, not the data itself
         self.scan_received = False
         self.odom_received = False
+        # Keep last timestamps for staleness detection - don't reset them
+        # Reset counters to track new data reception after reset
+        # Store current counts before reset to detect new data
+        self.scan_count_before_reset = self.scan_count
+        self.odom_count_before_reset = self.odom_count
         
         # Reset battery
         self.battery.reset()
@@ -190,22 +242,50 @@ class AckermannCityEnv(Node):
         # Reset previous distance tracking
         self.prev_distance_to_goal = None
         
-        # Select new random goal
+        # Reset episode step counter
+        self.step_count = 0
+        
+        # Reset delivery deadline tracking
+        self.delivery_start_time = time.time()
+        self.delivery_elapsed_time = 0.0
+        self.delivery_on_time = False
+        
+        # Select new goal - start from first point on reset (single delivery)
         try:
-            self.current_goal = self.delivery_points.get_random_point()
+            self.current_goal = self.delivery_points.get_next_point(None)  # Start from first point
             goal_pos = self.delivery_points.get_point_position(self.current_goal)
-            self.get_logger().info(
-                f"Selected goal: {self.current_goal.get('name', 'unknown')} "
-                f"at ({goal_pos[0]:.2f}, {goal_pos[1]:.2f})"
+            
+            # Get delivery deadline from goal config (default 120 seconds if not specified)
+            self.delivery_deadline = self.current_goal.get('deadline_seconds', 120.0)
+            
+            safe_log(self.get_logger().info,
+                f"Selected delivery: {self.current_goal.get('name', 'unknown')} "
+                f"at ({goal_pos[0]:.2f}, {goal_pos[1]:.2f}) "
+                f"| Deadline: {self.delivery_deadline:.1f}s"
             )
         except Exception as e:
-            self.get_logger().warn(f"Failed to select goal: {e}. Continuing without goal.")
+            safe_log(self.get_logger().warn, f"Failed to select goal: {e}. Continuing without goal.")
             self.current_goal = None
+            self.delivery_deadline = None
         
-        # Spin briefly to allow any pending messages
-        # Wait longer for initial sensor data
-        for _ in range(50):
-            self.spin_once(timeout_sec=0.05)  # Wait up to 2.5 seconds for initial data
+        # Spin to get initial sensor data - wait longer and be more aggressive
+        # Check if we received NEW data (count increased from before reset)
+        max_wait_iterations = 200  # Wait up to 10 seconds for initial data
+        
+        for i in range(max_wait_iterations):
+            self.spin_once(timeout_sec=0.05)
+            # Break if we received NEW data from both sensors (count increased from before reset)
+            scan_new = self.scan_count > self.scan_count_before_reset
+            odom_new = self.odom_count > self.odom_count_before_reset
+            if scan_new and odom_new:
+                safe_log(self.get_logger().info, f"[RESET] Received initial sensor data after {i+1} spins (scan={self.scan_count}, odom={self.odom_count})")
+                break
+        
+        # Log if we didn't receive initial data
+        if self.scan_count <= self.scan_count_before_reset:
+            safe_log(self.get_logger().warn, f"[RESET] No initial LiDAR data received (count={self.scan_count}, before={self.scan_count_before_reset})")
+        if self.odom_count <= self.odom_count_before_reset:
+            safe_log(self.get_logger().warn, f"[RESET] No initial odometry data received (count={self.odom_count}, before={self.odom_count_before_reset})")
         
         # Initialize previous distance
         if self.current_goal is not None and self.latest_odom is not None:
@@ -229,42 +309,55 @@ class AckermannCityEnv(Node):
         """
         # Publish control command to /cmd_vel (same topic as saye_control)
         # Note: AckermannSteering plugin handles conversion to steering angles
-        if not rclpy.ok():
-            self.get_logger().error("rclpy context invalid, cannot publish command")
-            # Return zero observation and negative reward
-            obs = self.get_observation()
-            return obs, -10.0, True, False, {'error': 'rclpy context invalid'}
-        
         cmd = Twist()
         cmd.linear.x = float(action[0])
         cmd.angular.z = float(action[1])
         
-        try:
-            self.cmd_vel_pub.publish(cmd)
-        except Exception as e:
-            self.get_logger().error(f"Failed to publish command: {e}")
-            # Return zero observation and negative reward
-            obs = self.get_observation()
-            return obs, -10.0, True, False, {'error': f'publish failed: {e}'}
+        # Check if ROS context is valid before publishing
+        # If context is invalid, skip publishing but continue with step execution
+        context_valid = rclpy.ok()
+        if context_valid and self.cmd_vel_pub is not None:
+            try:
+                # Try to publish
+                self.cmd_vel_pub.publish(cmd)
+            except Exception as e:
+                # If publishing fails, continue anyway - don't fail the step
+                # Most errors here are due to invalid context
+                if context_valid and "context" not in str(e).lower():
+                    try:
+                        self.get_logger().error(f"Failed to publish command: {e}")
+                    except:
+                        pass  # If logging fails, context is definitely invalid
+                # Don't terminate - just continue without publishing
+                # The car will stop, but we can still compute rewards from sensor data
+        
+        # Increment step count
+        self.step_count += 1
         
         # Spin briefly to process any incoming messages
-        # Give more time for sensor data to arrive - use longer timeout
-        # We need to ensure callbacks are processed, so spin more aggressively
-        import time
+        # Track message counts before spinning to detect new data
+        scan_count_before = self.scan_count
+        odom_count_before = self.odom_count
+        
         start_time = time.time()
-        max_wait_time = 0.5  # Wait up to 500ms for sensor data
+        max_wait_time = 2.0  # Increased to 2 seconds to wait longer for sensor data
+        min_spins = 20  # Minimum number of spins to ensure callbacks are processed
         
-        # Track if we received new data
-        scan_received_before = self.scan_received
-        odom_received_before = self.odom_received
+        # Spin to get fresh sensor data - be more aggressive about getting data
+        spin_iterations = 0
+        while (time.time() - start_time) < max_wait_time or spin_iterations < min_spins:
+            self.spin_once(timeout_sec=0.05)  # Shorter timeout per spin, but more spins
+            spin_iterations += 1
+            # Break early if we received new data from both sensors AND we've done minimum spins
+            if spin_iterations >= min_spins and (self.scan_count > scan_count_before and self.odom_count > odom_count_before):
+                break
         
-        while (time.time() - start_time) < max_wait_time:
-            self.spin_once(timeout_sec=0.05)
-            # Break early if we got both sensors (check if we received new data)
-            if self.latest_scan is not None and self.latest_odom is not None:
-                # Make sure we actually received new data, not just old data
-                if self.scan_received and self.odom_received:
-                    break
+        # Log if we didn't get new data (but don't fail - use stale data if available)
+        # Use safe_log to prevent ROS context errors
+        if self.scan_count == scan_count_before:
+            safe_log(self.get_logger().warn, f"[SENSOR] No new LiDAR data received after {spin_iterations} spins (count={self.scan_count})")
+        if self.odom_count == odom_count_before:
+            safe_log(self.get_logger().warn, f"[SENSOR] No new odometry data received after {spin_iterations} spins (count={self.odom_count})")
         
         # Update battery based on odometry
         if self.latest_odom is not None:
@@ -279,9 +372,27 @@ class AckermannCityEnv(Node):
             # Update battery (dt is approximate, not used in formula)
             self.battery.update(position, velocity, dt=0.1)
         
+        # Increment episode step counter BEFORE computing reward (so logs show correct step)
+        self.episode_step_count += 1
+        
         # Compute reward FIRST while sensor data is still available
         # (get_observation() might access sensor data, so compute reward before it)
         reward, reward_info = self.compute_reward()
+        
+        # Check if goal reached and move to next delivery point
+        if self.is_goal_reached() and self.current_goal is not None:
+            # Get next delivery point in sequence
+            next_goal = self.delivery_points.get_next_point(self.current_goal)
+            if next_goal is not None:
+                # Move to next goal (don't terminate - continue episode)
+                self.current_goal = next_goal
+                goal_pos = self.delivery_points.get_point_position(self.current_goal)
+                safe_log(self.get_logger().info,
+                    f"Goal reached! Moving to next goal: {self.current_goal.get('name', 'unknown')} "
+                    f"at ({goal_pos[0]:.2f}, {goal_pos[1]:.2f})"
+                )
+                # Reset previous distance tracking for new goal
+                self.prev_distance_to_goal = None
         
         # Get observation from sensors (includes battery level)
         observation = self.get_observation()
@@ -300,23 +411,45 @@ class AckermannCityEnv(Node):
             except:
                 pass
         
+        # Get velocity and distance to goal for logging
+        velocity = -1.0
+        distance_to_goal = -1.0
+        if self.latest_odom is not None:
+            velocity, _ = self.get_velocity_and_steering()
+            distance_to_goal = self.get_distance_to_goal()
+        
+        # Check if data is fresh (received within last 2 seconds)
+        current_time = time.time()
+        scan_is_fresh = (self.last_scan_time is not None and 
+                        (current_time - self.last_scan_time) < 2.0)
+        odom_is_fresh = (self.last_odom_time is not None and 
+                        (current_time - self.last_odom_time) < 2.0)
+        
         info = {
             'scan_received': self.scan_received,
             'odom_received': self.odom_received,
+            'scan_is_fresh': scan_is_fresh,
+            'odom_is_fresh': odom_is_fresh,
+            'scan_count': self.scan_count,
+            'odom_count': self.odom_count,
             'battery_level': self.battery.get_battery_level(),
             'battery_depleted': self.battery.is_depleted(),
             'current_goal': self.current_goal.get('name') if self.current_goal else None,
             'has_scan': self.latest_scan is not None,
             'has_odom': self.latest_odom is not None,
             'has_goal': self.current_goal is not None,
-            'road_distance': self.get_road_distance() if self.latest_odom is not None else -1.0,
-            'min_lidar_distance': min_lidar_dist,
-            **reward_info  # Add reward breakdown (includes penalty_collision, is_collision, etc.)
+            'velocity': velocity,
+            'distance_to_goal': distance_to_goal,
+            **reward_info  # Add reward breakdown (includes penalty_collision, is_collision, road_distance, min_lidar_distance, etc.)
         }
         
-        # DEBUG: Verify collision info is in the dict - use INFO level so it shows up
-        if reward_info.get('is_collision', False):
-            self.get_logger().info(f"[DEBUG] Final info dict: is_collision={info.get('is_collision')}, penalty_collision={info.get('penalty_collision')}, road_dist={info.get('road_distance')}")
+        
+        # Log warnings if data is stale (use safe_log to prevent ROS context errors)
+        if not scan_is_fresh and self.latest_scan is not None:
+            safe_log(self.get_logger().warn, f"[STALE DATA] LiDAR data is stale! Last update: {current_time - self.last_scan_time:.2f}s ago")
+        if not odom_is_fresh and self.latest_odom is not None:
+            safe_log(self.get_logger().warn, f"[STALE DATA] Odometry data is stale! Last update: {current_time - self.last_odom_time:.2f}s ago")
+        
         
         return observation, reward, terminated, truncated, info
     
@@ -408,7 +541,12 @@ class AckermannCityEnv(Node):
         Returns:
             Distance to nearest road in meters (0.0 if on road, positive if off-road)
         """
-        if self.roads_geometry is None or self.latest_odom is None:
+        if self.roads_geometry is None:
+            # If roads geometry not loaded, return 0.0 (assume on road)
+            # This prevents false positives but means off-road detection won't work
+            return 0.0
+        
+        if self.latest_odom is None:
             return 0.0
         
         # Get robot position
@@ -555,16 +693,41 @@ class AckermannCityEnv(Node):
         reward_info = {
             'reward_progress': 0.0,
             'reward_goal': 0.0,
+            'reward_delivery_on_time': 0.0,
+            'penalty_delivery_late': 0.0,
             'penalty_offroad': 0.0,
             'penalty_collision': 0.0,
             'penalty_battery': 0.0,
-            'penalty_time': 0.0
+            'penalty_time': 0.0,
+            'delivery_elapsed_time': 0.0,
+            'delivery_deadline': 0.0,
+            'delivery_time_remaining': 0.0,
+            'delivery_on_time': False
         }
         
-        # Debug: Check if sensors are working
+        # Check if sensors are working
+        # Use stale data if available - better than nothing
         has_odom = self.latest_odom is not None
         has_scan = self.latest_scan is not None
         has_goal = self.current_goal is not None
+        
+        # Update delivery elapsed time
+        if self.delivery_start_time is not None:
+            self.delivery_elapsed_time = time.time() - self.delivery_start_time
+            reward_info['delivery_elapsed_time'] = self.delivery_elapsed_time
+            if self.delivery_deadline is not None:
+                reward_info['delivery_deadline'] = self.delivery_deadline
+                reward_info['delivery_time_remaining'] = max(0.0, self.delivery_deadline - self.delivery_elapsed_time)
+        
+        # Log if we're using stale data
+        if has_odom and self.last_odom_time is not None:
+            time_since_odom = time.time() - self.last_odom_time
+            if time_since_odom > 1.0:  # More than 1 second old
+                safe_log(self.get_logger().warn, f"[REWARD] Using stale odometry data ({time_since_odom:.2f}s old)")
+        if has_scan and self.last_scan_time is not None:
+            time_since_scan = time.time() - self.last_scan_time
+            if time_since_scan > 1.0:  # More than 1 second old
+                safe_log(self.get_logger().warn, f"[REWARD] Using stale LiDAR data ({time_since_scan:.2f}s old)")
         
         # 1. Progress reward (getting closer to goal)
         if has_goal and has_odom:
@@ -575,52 +738,69 @@ class AckermannCityEnv(Node):
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
+                if abs(progress_reward) > 0.0001:
+                    print(f"[REWARD] Step {self.episode_step_count} | Progress: {progress_reward:+.4f} (moved {progress:+.2f}m closer, dist={current_distance:.2f}m)")
             else:
-                # First step after reset - initialize prev_distance
-                # No progress reward on first step, but set it for next step
                 reward_info['reward_progress'] = 0.0
-                # Initialize for next step
-                self.prev_distance_to_goal = current_distance
             
-            # Update previous distance for next step
-            if self.prev_distance_to_goal is not None:
-                self.prev_distance_to_goal = current_distance
-            
-            # 2. Goal reward (reaching goal)
+            self.prev_distance_to_goal = current_distance
             if self.is_goal_reached():
                 reward += self.reward_goal_reached
                 reward_info['reward_goal'] = self.reward_goal_reached
+                print(f"[REWARD] Step {self.episode_step_count} | GOAL REACHED! Reward: +{self.reward_goal_reached:.4f}")
+                
+                if self.delivery_deadline is not None and self.delivery_elapsed_time <= self.delivery_deadline:
+                    reward += self.reward_delivery_on_time
+                    reward_info['reward_delivery_on_time'] = self.reward_delivery_on_time
+                    self.delivery_on_time = True
+                    reward_info['delivery_on_time'] = True
+                    print(f"[REWARD] Step {self.episode_step_count} | ON-TIME DELIVERY! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Reward: +{self.reward_delivery_on_time:.4f}")
+                    safe_log(self.get_logger().info, 
+                        f"[DELIVERY] On-time delivery! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Reward: +{self.reward_delivery_on_time}")
+                elif self.delivery_deadline is not None:
+                    seconds_late = self.delivery_elapsed_time - self.delivery_deadline
+                    late_penalty = self.reward_delivery_late_penalty * seconds_late
+                    reward += late_penalty
+                    reward_info['penalty_delivery_late'] = late_penalty
+                    self.delivery_on_time = False
+                    reward_info['delivery_on_time'] = False
+                    print(f"[REWARD] Step {self.episode_step_count} | LATE DELIVERY! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Late by: {seconds_late:.1f}s | Penalty: {late_penalty:.4f}")
+                    safe_log(self.get_logger().warn,
+                        f"[DELIVERY] Late delivery! Elapsed: {self.delivery_elapsed_time:.1f}s / Deadline: {self.delivery_deadline:.1f}s | Late by: {seconds_late:.1f}s | Penalty: {late_penalty:.2f}")
+                else:
+                    reward_info['delivery_on_time'] = False
+            else:
+                if self.delivery_deadline is not None and self.delivery_elapsed_time > self.delivery_deadline:
+                    seconds_late = self.delivery_elapsed_time - self.delivery_deadline
+                    late_penalty = self.reward_delivery_late_penalty * 0.1 * seconds_late
+                    reward += late_penalty
+                    reward_info['penalty_delivery_late'] = late_penalty
+                    reward_info['delivery_on_time'] = False
+                    print(f"[REWARD] Step {self.episode_step_count} | Running late: {seconds_late:.1f}s past deadline | Penalty: {late_penalty:.4f}")
         elif not has_goal:
-            # No goal selected - this shouldn't happen but handle it
             reward_info['reward_progress'] = 0.0
         elif not has_odom:
-            # No odometry - can't compute progress
             reward_info['reward_progress'] = 0.0
-        
-        # 3. Off-road penalty
         if has_odom:
             road_distance = self.get_road_distance()
             if road_distance > 0.0:
                 offroad_penalty = self.reward_offroad_penalty * road_distance
                 reward += offroad_penalty
                 reward_info['penalty_offroad'] = offroad_penalty
+                if abs(offroad_penalty) > 0.0001:
+                    print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance={road_distance:.2f}m | Penalty: {offroad_penalty:.4f}")
             else:
                 reward_info['penalty_offroad'] = 0.0
         else:
             reward_info['penalty_offroad'] = 0.0
         
-        # 4. Collision penalty
-        # Check both LiDAR collision and off-road collision (sidewalk/curb)
-        # IMPORTANT: Always check collisions if we have ANY sensor data, even if flags are False
         is_colliding_lidar = False
         is_colliding_offroad = False
         min_lidar_dist = -1.0
         road_distance = -1.0
         
-        # Check LiDAR collision - use latest_scan directly, not has_scan flag
         if self.latest_scan is not None:
             is_colliding_lidar = self.is_collision()
-            # Get min LiDAR distance for logging
             try:
                 ranges = np.array(self.latest_scan.ranges)
                 valid_ranges = ranges[np.isfinite(ranges)]
@@ -629,50 +809,54 @@ class AckermannCityEnv(Node):
             except:
                 pass
         
-        # Also check if severely off-road (likely hitting sidewalk/curb)
-        # Use latest_odom directly, not has_odom flag
         if self.latest_odom is not None:
             road_distance = self.get_road_distance()
             if road_distance > self.offroad_collision_threshold:
                 is_colliding_offroad = True
-                self.get_logger().warn(f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m")
+                safe_log(self.get_logger().warn, f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m")
         
         is_colliding = is_colliding_lidar or is_colliding_offroad
         
-        if is_colliding:
-            reward += self.reward_collision_penalty
-            reward_info['penalty_collision'] = self.reward_collision_penalty
-            # Log collision with detailed information
-            if is_colliding_lidar:
-                self.get_logger().warn(f"[COLLISION] LiDAR collision detected! min_distance={min_lidar_dist:.3f}m <= threshold={self.collision_threshold}m | Penalty: {self.reward_collision_penalty}")
-            if is_colliding_offroad:
-                self.get_logger().warn(f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m | Penalty: {self.reward_collision_penalty}")
-            # Always log when collision penalty is applied
-            self.get_logger().info(f"[REWARD] Collision penalty applied: {self.reward_collision_penalty} (lidar={is_colliding_lidar}, offroad={is_colliding_offroad})")
-        else:
-            reward_info['penalty_collision'] = 0.0
+        if self.latest_odom is not None and road_distance == -1.0:
+            road_distance = self.get_road_distance()
         
-        # Add collision status to info for debugging - ALWAYS set these, even if False
-        # CRITICAL: Set these values directly in reward_info to ensure they're in the final info dict
-        reward_info['is_collision'] = bool(is_colliding)  # Ensure boolean type
+        reward_info['is_collision'] = bool(is_colliding)
         reward_info['is_collision_lidar'] = bool(is_colliding_lidar)
         reward_info['is_collision_offroad'] = bool(is_colliding_offroad)
         reward_info['min_lidar_distance'] = float(min_lidar_dist)
         reward_info['road_distance'] = float(road_distance)
         
-        # DEBUG: Log reward_info state immediately after setting it
         if is_colliding:
-            self.get_logger().info(f"[DEBUG] reward_info after collision: penalty_collision={reward_info.get('penalty_collision')}, is_collision={reward_info.get('is_collision')}")
+            reward += self.reward_collision_penalty
+            reward_info['penalty_collision'] = self.reward_collision_penalty
+            collision_types = []
+            if is_colliding_lidar:
+                collision_types.append(f"LiDAR (min={min_lidar_dist:.2f}m)")
+            if is_colliding_offroad:
+                collision_types.append(f"Off-road (dist={road_distance:.2f}m)")
+            print(f"\n[REWARD] Step {self.episode_step_count} | COLLISION DETECTED! Type: {', '.join(collision_types)} | Penalty: {self.reward_collision_penalty:.4f}\n")
+            if is_colliding_lidar:
+                safe_log(self.get_logger().warn, f"[COLLISION] LiDAR collision detected! min_distance={min_lidar_dist:.3f}m <= threshold={self.collision_threshold}m | Penalty: {self.reward_collision_penalty}")
+            if is_colliding_offroad:
+                safe_log(self.get_logger().warn, f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m | Penalty: {self.reward_collision_penalty}")
+            safe_log(self.get_logger().info, f"[REWARD] Collision penalty applied: {self.reward_collision_penalty} (lidar={is_colliding_lidar}, offroad={is_colliding_offroad})")
+        else:
+            reward_info['penalty_collision'] = 0.0
+        
         
         # 5. Battery penalty (penalty for low battery)
         battery_level = self.battery.get_battery_level()
         battery_penalty = self.reward_battery_penalty_scale * (1.0 - battery_level)
         reward += battery_penalty
         reward_info['penalty_battery'] = battery_penalty
+        if abs(battery_penalty) > 0.0001:
+            print(f"[REWARD] Step {self.episode_step_count} | Battery: level={battery_level:.3f} | Penalty: {battery_penalty:.4f}")
         
-        # 6. Time penalty (small negative per step)
         reward += self.reward_time_penalty
         reward_info['penalty_time'] = self.reward_time_penalty
+        print(f"[REWARD] Step {self.episode_step_count} | Time penalty: {self.reward_time_penalty:.4f} (per step)")
+        
+        print(f"[REWARD] Step {self.episode_step_count} | TOTAL REWARD: {reward:+.4f}")
         
         return reward, reward_info
     
@@ -687,9 +871,8 @@ class AckermannCityEnv(Node):
         terminated = False
         truncated = False
         
-        # Terminate if goal reached
-        if self.is_goal_reached():
-            terminated = True
+        # Note: Goal reached is handled in step() to move to next goal
+        # Only terminate if all goals are completed (handled in step())
         
         # Terminate if collision (LiDAR or off-road)
         if self.is_collision():
@@ -706,4 +889,25 @@ class AckermannCityEnv(Node):
             truncated = True
         
         return terminated, truncated
+    
+    def stop(self):
+        """Stop the car by sending zero velocity command.
+        
+        This should be called before closing the environment to ensure
+        the car stops moving when training ends.
+        """
+        if self.cmd_vel_pub is not None and rclpy.ok():
+            try:
+                stop_cmd = Twist()
+                stop_cmd.linear.x = 0.0
+                stop_cmd.angular.z = 0.0
+                # Publish stop command multiple times to ensure it's received
+                for _ in range(5):
+                    self.cmd_vel_pub.publish(stop_cmd)
+                    # Spin briefly to ensure message is sent
+                    self.spin_once(timeout_sec=0.05)
+                safe_log(self.get_logger().info, "Car stopped (zero velocity command sent)")
+            except Exception as e:
+                # Ignore errors if context is invalid or publisher is unavailable
+                safe_log(self.get_logger().warn, f"Could not send stop command: {e}")
 
