@@ -30,8 +30,8 @@ class AckermannGymEnv(gym.Env):
         # Initialize ROS 2 if not already initialized
         # CRITICAL: Only initialize once globally, don't re-initialize if already done
         try:
-            if not rclpy.ok():
-                rclpy.init()
+        if not rclpy.ok():
+            rclpy.init()
         except Exception as e:
             # If init fails, context might already exist - try to continue
             pass

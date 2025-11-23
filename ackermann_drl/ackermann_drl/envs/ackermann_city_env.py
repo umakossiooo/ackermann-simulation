@@ -646,8 +646,14 @@ class AckermannCityEnv(Node):
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
+                reward_info['progress_meters'] = progress  # Store actual progress in meters
+                reward_info['prev_distance'] = self.prev_distance_to_goal
+                reward_info['current_distance'] = current_distance
             else:
                 reward_info['reward_progress'] = 0.0
+                reward_info['progress_meters'] = 0.0
+                reward_info['prev_distance'] = None
+                reward_info['current_distance'] = current_distance
             
             self.prev_distance_to_goal = current_distance
             if self.is_goal_reached():
@@ -823,6 +829,9 @@ class AckermannCityEnv(Node):
         print(f"  TOTAL REWARD:           {reward:+10.4f}")
         print(f"{'='*70}")
         print(f"  Diagnostics: velocity={velocity:.2f} m/s | dist_to_goal={distance_to_goal:.2f}m | min_lidar={min_lidar_dist:.2f}m | road_dist={road_distance:.2f}m")
+        if reward_info.get('prev_distance') is not None:
+            progress_m = reward_info.get('progress_meters', 0.0)
+            print(f"  Progress: {progress_m:+.4f}m (prev={reward_info.get('prev_distance', 0):.2f}m -> curr={reward_info.get('current_distance', 0):.2f}m)")
         if self.delivery_deadline is not None:
             status = "(LATE)" if self.delivery_elapsed_time > self.delivery_deadline else "(on-time)"
             print(f"  Delivery: {self.delivery_elapsed_time:.1f}s / {self.delivery_deadline:.1f}s {status}")

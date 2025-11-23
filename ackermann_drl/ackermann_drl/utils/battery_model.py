@@ -129,7 +129,7 @@ class BatteryModel:
             level: Battery level in [0,1] range
         """
         self.battery_level = np.clip(level, 0.0, 1.0)
-    
+
     def set_vehicle_weight(self, weight: float):
         """Set vehicle weight and update weight factor.
         
