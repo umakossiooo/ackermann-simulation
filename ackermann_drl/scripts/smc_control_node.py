@@ -20,6 +20,7 @@ import numpy as np
 import math
 import sys
 import os
+import time
 
 # Add package path
 sys.path.insert(0, '/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl')
@@ -61,6 +62,38 @@ class SMCControlNode(Node):
         # Obstacle avoidance parameters
         self.obstacle_threshold = 1.5  # meters (stop if obstacle closer than this)
         self.slowdown_threshold = 3.0  # meters (slow down if obstacle closer than this)
+        
+        # Metrics tracking (for comparison with DRL)
+        self.metrics = {
+            'total_steps': 0,
+            'collision_count': 0,
+            'offroad_count': 0,
+            'offroad_distance_sum': 0.0,
+            'total_reward': 0.0,
+            'goal_reached': False,
+            'episode_start_time': time.time(),
+        }
+        
+        # Reward parameters (same as DRL environment for comparison)
+        self.reward_progress_scale = 1.0
+        self.reward_goal_reached = 50.0
+        self.reward_offroad_penalty = -0.05
+        self.reward_collision_penalty = -20.0
+        self.reward_time_penalty = -0.01
+        self.goal_reached_threshold = 2.0
+        self.collision_threshold = 1.5  # Same as DRL environment
+        self.offroad_collision_threshold = 1.0  # Same as DRL environment
+        
+        # Goal tracking (for delivery points)
+        try:
+            from ackermann_drl.utils.delivery_points import DeliveryPoints
+            self.delivery_points = DeliveryPoints()
+            self.current_goal = None
+            self.prev_distance_to_goal = None
+        except Exception as e:
+            self.get_logger().warn(f"Could not load delivery points: {e}")
+            self.delivery_points = None
+            self.current_goal = None
         
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -213,6 +246,36 @@ class SMCControlNode(Node):
         if min_distance < self.slowdown_threshold:
             velocity *= 0.5
         
+        # Check collisions and off-road (same thresholds as DRL environment)
+        is_collision = False
+        is_offroad_collision = False
+        
+        # Check LiDAR collision
+        if self.latest_scan is not None:
+            ranges = np.array(self.latest_scan.ranges)
+            valid_ranges = ranges[np.isfinite(ranges)]
+            if len(valid_ranges) > 0:
+                min_lidar_dist = np.min(valid_ranges)
+                if min_lidar_dist <= self.collision_threshold:
+                    is_collision = True
+        
+        # Check off-road collision
+        if road_distance > self.offroad_collision_threshold:
+            is_offroad_collision = True
+            is_collision = True
+        
+        # Track metrics (for comparison with DRL)
+        self.metrics['total_steps'] += 1
+        if is_collision:
+            self.metrics['collision_count'] += 1
+        if road_distance > 0.0:
+            self.metrics['offroad_count'] += 1
+            self.metrics['offroad_distance_sum'] += road_distance
+        
+        # Compute reward (same as DRL environment for comparison)
+        reward = self._compute_reward(road_distance, is_collision, min_distance)
+        self.metrics['total_reward'] += reward
+        
         # Create and publish command
         cmd = Twist()
         cmd.linear.x = float(velocity)
@@ -229,8 +292,50 @@ class SMCControlNode(Node):
             self.get_logger().info(
                 f"SMC Control: lateral_error={lateral_error:.3f}m, "
                 f"heading_error={math.degrees(heading_error):.1f}°, "
-                f"steering={steering:.3f}, velocity={velocity:.2f}m/s"
+                f"steering={steering:.3f}, velocity={velocity:.2f}m/s, "
+                f"road_dist={road_distance:.2f}m, reward={reward:.3f}"
             )
+            
+            # Log metrics summary
+            if self._log_counter % 500 == 0:  # Every 10 seconds
+                avg_reward = self.metrics['total_reward'] / max(1, self.metrics['total_steps'])
+                self.get_logger().info(
+                    f"SMC Metrics: steps={self.metrics['total_steps']}, "
+                    f"collisions={self.metrics['collision_count']}, "
+                    f"offroad_steps={self.metrics['offroad_count']}, "
+                    f"avg_reward={avg_reward:.4f}"
+                )
+    
+    def _compute_reward(self, road_distance: float, is_collision: bool, min_obstacle_distance: float) -> float:
+        """Compute reward using same formula as DRL environment for comparison.
+        
+        Args:
+            road_distance: Distance from road (meters)
+            is_collision: Whether collision detected
+            min_obstacle_distance: Minimum LiDAR distance (meters)
+        
+        Returns:
+            Reward value (same scale as DRL environment)
+        """
+        reward = 0.0
+        
+        # Progress reward (simplified - would need goal tracking for full implementation)
+        # For now, reward staying on road
+        if road_distance < 0.5:
+            reward += 0.1  # Small reward for staying close to road
+        
+        # Off-road penalty (same as DRL)
+        if road_distance > 0.0:
+            reward += self.reward_offroad_penalty * road_distance
+        
+        # Collision penalty (same as DRL)
+        if is_collision:
+            reward += self.reward_collision_penalty
+        
+        # Time penalty (same as DRL)
+        reward += self.reward_time_penalty
+        
+        return reward
 
 
 def main(args=None):
