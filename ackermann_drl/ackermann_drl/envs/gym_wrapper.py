@@ -28,8 +28,13 @@ class AckermannGymEnv(gym.Env):
         super().__init__()
         
         # Initialize ROS 2 if not already initialized
-        if not rclpy.ok():
-            rclpy.init()
+        # CRITICAL: Only initialize once globally, don't re-initialize if already done
+        try:
+            if not rclpy.ok():
+                rclpy.init()
+        except Exception as e:
+            # If init fails, context might already exist - try to continue
+            pass
         
         # Create the ROS 2 environment
         self.env = AckermannCityEnv(node_name=node_name)
@@ -87,13 +92,14 @@ class AckermannGymEnv(gym.Env):
     def close(self):
         """Close the environment."""
         try:
+            # Stop the car before closing to prevent it from continuing to move
+            self.env.stop()
             self.env.destroy_node()
-            if rclpy.ok():
-                rclpy.shutdown()
+            # DON'T shutdown ROS context here - it's shared globally
+            # Let the training script handle shutdown
         except:
             pass
     
     def render(self, mode: str = 'human'):
         """Render the environment (not implemented for headless training)."""
         pass
-
