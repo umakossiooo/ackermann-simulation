@@ -53,7 +53,6 @@ class AckermannCityEnv(Node):
         """
         super().__init__(node_name)
         
-        # Subscriptions
         self.scan_sub = self.create_subscription(
             LaserScan,
             '/scan',
