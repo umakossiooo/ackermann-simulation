@@ -646,10 +646,10 @@ class AckermannCityEnv(Node):
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
-                if abs(progress_reward) > 0.0001:
-                    print(f"[REWARD] Step {self.episode_step_count} | Progress: {progress_reward:+.4f} (moved {progress:+.2f}m closer, dist={current_distance:.2f}m)")
+                print(f"[REWARD] Step {self.episode_step_count} | Progress: {progress_reward:+.4f} (moved {progress:+.2f}m closer, dist={current_distance:.2f}m)")
             else:
                 reward_info['reward_progress'] = 0.0
+                print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no previous distance, dist={current_distance:.2f}m)")
             
             self.prev_distance_to_goal = current_distance
             if self.is_goal_reached():
@@ -687,20 +687,22 @@ class AckermannCityEnv(Node):
                     print(f"[REWARD] Step {self.episode_step_count} | Running late: {seconds_late:.1f}s past deadline | Penalty: {late_penalty:.4f}")
         elif not has_goal:
             reward_info['reward_progress'] = 0.0
+            print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no goal)")
         elif not has_odom:
             reward_info['reward_progress'] = 0.0
+            print(f"[REWARD] Step {self.episode_step_count} | Progress: +0.0000 (no odom)")
         if has_odom:
             road_distance = self.get_road_distance()
             if road_distance > 0.0:
                 offroad_penalty = self.reward_offroad_penalty * road_distance
                 reward += offroad_penalty
                 reward_info['penalty_offroad'] = offroad_penalty
-                if abs(offroad_penalty) > 0.0001:
-                    print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance={road_distance:.2f}m | Penalty: {offroad_penalty:.4f}")
             else:
                 reward_info['penalty_offroad'] = 0.0
+            print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance={road_distance:.2f}m | Penalty: {reward_info.get('penalty_offroad', 0.0):+.4f}")
         else:
             reward_info['penalty_offroad'] = 0.0
+            print(f"[REWARD] Step {self.episode_step_count} | Off-road: distance=N/A | Penalty: +0.0000 (no odom)")
         
         is_colliding_lidar = False
         is_colliding_offroad = False
@@ -750,6 +752,7 @@ class AckermannCityEnv(Node):
             safe_log(self.get_logger().info, f"[REWARD] Collision penalty applied: {self.reward_collision_penalty} (lidar={is_colliding_lidar}, offroad={is_colliding_offroad})")
         else:
             reward_info['penalty_collision'] = 0.0
+            print(f"[REWARD] Step {self.episode_step_count} | Collision: None (min_lidar={min_lidar_dist:.2f}m, road_dist={road_distance:.2f}m) | Penalty: +0.0000")
         
         
         # 5. Battery efficiency system (zone-based - rewards high battery, penalizes critical)
@@ -800,20 +803,20 @@ class AckermannCityEnv(Node):
                     reward_info['penalty_aggressive_change'] = 0.0
             self.prev_velocity_for_efficiency = velocity
         
-        # Log battery efficiency metrics (always log battery zone, log others if significant)
+        # Log battery efficiency metrics (always log ALL components)
         battery_log_parts = [f"Battery: {battery_level*100:.1f}% ({battery_zone}) | Conservation: {battery_conservation_reward:+.4f}"]
         
-        if reward_info.get('reward_efficiency', 0.0) > 0.01:
-            battery_log_parts.append(f"Efficiency: {reward_info.get('reward_efficiency', 0.0):.4f}")
+        # Always log efficiency (even if 0)
+        battery_log_parts.append(f"Efficiency: {reward_info.get('reward_efficiency', 0.0):+.4f}")
         
-        if reward_info.get('penalty_high_speed', 0.0) < 0.0:
-            battery_log_parts.append(f"High-speed: {reward_info.get('penalty_high_speed', 0.0):.4f}")
+        # Always log high-speed penalty (even if 0)
+        battery_log_parts.append(f"High-speed: {reward_info.get('penalty_high_speed', 0.0):+.4f}")
         
-        if reward_info.get('penalty_aggressive_change', 0.0) < 0.0:
-            battery_log_parts.append(f"Aggressive: {reward_info.get('penalty_aggressive_change', 0.0):.4f}")
+        # Always log aggressive change penalty (even if 0)
+        battery_log_parts.append(f"Aggressive: {reward_info.get('penalty_aggressive_change', 0.0):+.4f}")
         
-        if battery_consumed > 0.0:
-            battery_log_parts.append(f"Consumed: {battery_consumed:.4f}")
+        # Always log battery consumed (even if 0)
+        battery_log_parts.append(f"Consumed: {battery_consumed:.4f}")
         
         print(f"[REWARD] Step {self.episode_step_count} | {' | '.join(battery_log_parts)}")
         
