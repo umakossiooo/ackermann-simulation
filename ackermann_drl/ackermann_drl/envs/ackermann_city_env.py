@@ -469,12 +469,18 @@ class AckermannCityEnv(Node):
                 velocity_from_position = distance / dt
                 # Use position-based velocity (more accurate than twist)
                 velocity = velocity_from_position
+                # Debug logging
+                if distance > 0.001:
+                    safe_log(self.get_logger().debug, 
+                        f"[VELOCITY] Position-based: {velocity:.3f} m/s (moved {distance:.4f}m in {dt:.3f}s, prev_pos={self.prev_position}, curr_pos={current_position})")
             else:
                 # dt too small, use twist
                 velocity = velocity_from_twist
+                safe_log(self.get_logger().debug, f"[VELOCITY] dt too small ({dt:.6f}s), using twist: {velocity_from_twist:.3f} m/s")
         else:
             # No previous position, use twist
             velocity = velocity_from_twist
+            safe_log(self.get_logger().debug, f"[VELOCITY] No prev_position (prev={self.prev_position is not None}, time={self.prev_position_time is not None}), using twist: {velocity_from_twist:.3f} m/s")
         
         return (velocity, steering)
     
