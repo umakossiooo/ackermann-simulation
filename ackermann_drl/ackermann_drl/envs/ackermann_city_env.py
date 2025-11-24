@@ -469,24 +469,23 @@ class AckermannCityEnv(Node):
             current_time = time.time()
             dt = current_time - self.prev_position_time
             
-            if dt > 0.001:  # Avoid division by zero
+            # Use a smaller threshold for dt (0.0001s = 0.1ms) to catch fast updates
+            if dt > 0.0001:  # Avoid division by zero, but allow very small dt
                 position_change = current_position - self.prev_position
                 distance = np.linalg.norm(position_change)
                 velocity_from_position = distance / dt
                 # Use position-based velocity (more accurate than twist)
                 velocity = velocity_from_position
-                # Debug logging
-                if distance > 0.001:
-                    safe_log(self.get_logger().debug, 
-                        f"[VELOCITY] Position-based: {velocity:.3f} m/s (moved {distance:.4f}m in {dt:.3f}s, prev_pos={self.prev_position}, curr_pos={current_position})")
+                # Always log for debugging (remove later if too verbose)
+                print(f"[VELOCITY DEBUG] dt={dt:.6f}s, distance={distance:.6f}m, velocity={velocity:.4f} m/s, twist={velocity_from_twist:.4f} m/s")
             else:
                 # dt too small, use twist
                 velocity = velocity_from_twist
-                safe_log(self.get_logger().debug, f"[VELOCITY] dt too small ({dt:.6f}s), using twist: {velocity_from_twist:.3f} m/s")
+                print(f"[VELOCITY DEBUG] dt too small ({dt:.6f}s), using twist: {velocity_from_twist:.4f} m/s")
         else:
             # No previous position, use twist
             velocity = velocity_from_twist
-            safe_log(self.get_logger().debug, f"[VELOCITY] No prev_position (prev={self.prev_position is not None}, time={self.prev_position_time is not None}), using twist: {velocity_from_twist:.3f} m/s")
+            print(f"[VELOCITY DEBUG] No prev_position (prev={self.prev_position is not None}, time={self.prev_position_time is not None}), using twist: {velocity_from_twist:.4f} m/s")
         
         return (velocity, steering)
     
