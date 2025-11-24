@@ -550,7 +550,9 @@ class AckermannCityEnv(Node):
         idx += self.lidar_downsampled_size  # 180
         
         # 2. Velocity and steering (indices 180-181)
-        velocity, steering = self.get_velocity_and_steering()
+        # Use stored velocity (calculated before prev_position update)
+        velocity = self.current_step_velocity
+        _, steering = self.get_velocity_and_steering()  # Only need steering from twist
         obs[idx] = velocity
         idx += 1  # 181
         obs[idx] = steering
