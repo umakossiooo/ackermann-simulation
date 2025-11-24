@@ -252,7 +252,9 @@ class AckermannCityEnv(Node):
             # Initialize prev_position for velocity calculation
             pos = self.latest_odom.pose.pose.position
             self.prev_position = np.array([pos.x, pos.y, pos.z])
-            self.prev_position_time = time.time()
+            # Use odometry timestamp for more accurate timing
+            odom_stamp = self.latest_odom.header.stamp
+            self.prev_position_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
         
         # Initialize current_step_velocity before get_observation() (will be 0.0 on reset)
         self.current_step_velocity = 0.0
@@ -315,7 +317,9 @@ class AckermannCityEnv(Node):
             
             # NOW update previous position for NEXT step's velocity calculation
             self.prev_position = position.copy()
-            self.prev_position_time = time.time()
+            # Use odometry timestamp for more accurate timing
+            odom_stamp = self.latest_odom.header.stamp
+            self.prev_position_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
             
             battery_before = self.battery.get_battery_level()
             self.battery.update(position, self.current_step_velocity, dt=0.1)
@@ -466,7 +470,10 @@ class AckermannCityEnv(Node):
         if self.prev_position is not None and self.prev_position_time is not None:
             pos = self.latest_odom.pose.pose.position
             current_position = np.array([pos.x, pos.y, pos.z])
-            current_time = time.time()
+            
+            # Use odometry header timestamp for more accurate dt (in seconds)
+            odom_stamp = self.latest_odom.header.stamp
+            current_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
             dt = current_time - self.prev_position_time
             
             # Use a smaller threshold for dt (0.0001s = 0.1ms) to catch fast updates
@@ -477,7 +484,7 @@ class AckermannCityEnv(Node):
                 # Use position-based velocity (more accurate than twist)
                 velocity = velocity_from_position
                 # Always log for debugging (remove later if too verbose)
-                print(f"[VELOCITY DEBUG] dt={dt:.6f}s, distance={distance:.6f}m, velocity={velocity:.4f} m/s, twist={velocity_from_twist:.4f} m/s")
+                print(f"[VELOCITY DEBUG] dt={dt:.6f}s, distance={distance:.6f}m, velocity={velocity:.4f} m/s, twist={velocity_from_twist:.4f} m/s, prev_pos={self.prev_position}, curr_pos={current_position}")
             else:
                 # dt too small, use twist
                 velocity = velocity_from_twist
