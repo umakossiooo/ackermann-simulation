@@ -112,6 +112,8 @@ class AckermannCityEnv(Node):
         self.offroad_collision_threshold = 0.5  # Lower threshold to detect sidewalk collisions
         
         self.prev_distance_to_goal: Optional[float] = None
+        self.prev_position: Optional[np.ndarray] = None
+        self.prev_position_time: Optional[float] = None
         self.delivery_start_time: Optional[float] = None
         self.delivery_deadline: Optional[float] = None
         self.delivery_elapsed_time: float = 0.0
@@ -297,8 +299,13 @@ class AckermannCityEnv(Node):
         if self.latest_odom is not None:
             pos = self.latest_odom.pose.pose.position
             position = np.array([pos.x, pos.y, pos.z])
-            twist = self.latest_odom.twist.twist
-            velocity = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+            # Get velocity (will calculate from position if twist is 0)
+            velocity, _ = self.get_velocity_and_steering()
+            
+            # Update previous position for velocity calculation
+            self.prev_position = position.copy()
+            self.prev_position_time = time.time()
+            
             battery_before = self.battery.get_battery_level()
             self.battery.update(position, velocity, dt=0.1)
             battery_after = self.battery.get_battery_level()
@@ -428,6 +435,8 @@ class AckermannCityEnv(Node):
     def get_velocity_and_steering(self) -> Tuple[float, float]:
         """Extract velocity and steering from odometry.
         
+        Calculates velocity from position changes if odometry twist is not available/accurate.
+        
         Returns:
             Tuple of (velocity, steering):
             - velocity: Linear velocity magnitude (m/s)
@@ -436,9 +445,31 @@ class AckermannCityEnv(Node):
         if self.latest_odom is None:
             return (0.0, 0.0)
         
+        # Try to get velocity from odometry twist first
         twist = self.latest_odom.twist.twist
-        velocity = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+        velocity_from_twist = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
         steering = twist.angular.z
+        
+        # If velocity from twist is 0 but we have previous position, calculate from position change
+        if velocity_from_twist < 0.01 and self.prev_position is not None and self.prev_position_time is not None:
+            pos = self.latest_odom.pose.pose.position
+            current_position = np.array([pos.x, pos.y, pos.z])
+            current_time = time.time()
+            dt = current_time - self.prev_position_time
+            
+            if dt > 0.001:  # Avoid division by zero
+                position_change = current_position - self.prev_position
+                distance = np.linalg.norm(position_change)
+                velocity_from_position = distance / dt
+                # Use position-based velocity if it's more reasonable
+                if velocity_from_position > 0.01:
+                    velocity = velocity_from_position
+                else:
+                    velocity = velocity_from_twist
+            else:
+                velocity = velocity_from_twist
+        else:
+            velocity = velocity_from_twist
         
         return (velocity, steering)
     
