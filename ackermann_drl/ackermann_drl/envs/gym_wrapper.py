@@ -94,10 +94,20 @@ class AckermannGymEnv(gym.Env):
         try:
             # Stop the car before closing to prevent it from continuing to move
             self.env.stop()
+            # Give it a moment to process the stop command
+            import time
+            time.sleep(0.2)
+            # Spin a few times to ensure stop command is processed
+            for _ in range(5):
+                try:
+                    self.env.spin_once(timeout_sec=0.01)
+                except:
+                    pass
             self.env.destroy_node()
             # DON'T shutdown ROS context here - it's shared globally
             # Let the training script handle shutdown
-        except:
+        except Exception as e:
+            # Silently ignore errors during cleanup
             pass
     
     def render(self, mode: str = 'human'):

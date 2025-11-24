@@ -51,20 +51,27 @@ class AckermannCityEnv(Node):
         Args:
             node_name: Name for the ROS 2 node
         """
+        # Add timestamp and process ID to node name to avoid conflicts when restarting
+        import time
+        import os
+        if node_name == 'ackermann_drl_env':
+            # Use timestamp + PID for truly unique names
+            node_name = f'ackermann_drl_env_{int(time.time() * 1000)}_{os.getpid()}'
         super().__init__(node_name)
+        print(f"[INIT] Created ROS node: {node_name}", flush=True)
         
         self.scan_sub = self.create_subscription(
             LaserScan,
             '/scan',
             self._scan_callback,
-            10
+            100  # Increased queue size to ensure we don't drop messages
         )
         
         self.odom_sub = self.create_subscription(
             Odometry,
             '/odom',
             self._odom_callback,
-            10
+            100  # Increased queue size to ensure we don't drop messages
         )
         
         self.cmd_vel_pub = self.create_publisher(
@@ -72,6 +79,40 @@ class AckermannCityEnv(Node):
             '/cmd_vel',
             10
         )
+        # Wait longer for the publisher to be ready and establish connections
+        # The ros_gz_bridge needs time to discover and connect to our publisher
+        import time
+        print(f"[INIT] Waiting for ros_gz_bridge to connect to /cmd_vel publisher...", flush=True)
+        time.sleep(1.0)  # Give bridge more time to discover
+        
+        # Spin many times to ensure the publisher is registered and subscribers are connected
+        # Keep trying until we get at least one subscriber (the bridge)
+        max_attempts = 50
+        sub_count = 0
+        for attempt in range(max_attempts):
+            for _ in range(5):
+                self.spin_once(timeout_sec=0.1)
+            sub_count = self.cmd_vel_pub.get_subscription_count()
+            if sub_count > 0:
+                print(f"[INIT] Connected! Found {sub_count} subscriber(s) after {attempt+1} attempts", flush=True)
+                break
+            if attempt < 5 or attempt % 10 == 0:
+                print(f"[INIT] Waiting for subscribers... (attempt {attempt+1}/{max_attempts}, current: {sub_count})", flush=True)
+            time.sleep(0.1)
+        
+        # Publish a test command to ensure connection is established
+        test_cmd = Twist()
+        test_cmd.linear.x = 0.0
+        test_cmd.angular.z = 0.0
+        for _ in range(10):
+            self.cmd_vel_pub.publish(test_cmd)
+            self.spin_once(timeout_sec=0.05)
+        
+        final_sub_count = self.cmd_vel_pub.get_subscription_count()
+        print(f"[INIT] Publisher ready. Final subscriber count: {final_sub_count}", flush=True)
+        if final_sub_count == 0:
+            print(f"[ERROR] No subscribers to /cmd_vel! The ros_gz_bridge may not be running or connected.", flush=True)
+            print(f"[ERROR] Make sure Gazebo is running and the bridge is active.", flush=True)
         
         self.latest_scan: Optional[LaserScan] = None
         self.latest_odom: Optional[Odometry] = None
@@ -125,8 +166,27 @@ class AckermannCityEnv(Node):
         self.step_count = 0
         self.episode_count = 0
         self.episode_step_count = 0
+        self.episode_cumulative_reward = 0.0  # Track cumulative reward for current episode
+        self.training_cumulative_reward = 0.0  # Track cumulative reward across entire training run
         self.prev_velocity_for_efficiency = None
         self.battery_consumed_this_step = 0.0
+
+        self.cumulative_reward_components = self._init_reward_component_totals()
+    def _init_reward_component_totals(self) -> Dict[str, float]:
+        return {
+            'reward_progress': 0.0,
+            'reward_goal': 0.0,
+            'reward_delivery_on_time': 0.0,
+            'reward_battery_conservation': 0.0,
+            'reward_efficiency': 0.0,
+            'penalty_delivery_late': 0.0,
+            'penalty_offroad': 0.0,
+            'penalty_collision': 0.0,
+            'penalty_high_speed': 0.0,
+            'penalty_aggressive_change': 0.0,
+            'penalty_time': 0.0,
+        }
+
         self.executor = None
         if rclpy.ok():
             try:
@@ -162,6 +222,10 @@ class AckermannCityEnv(Node):
         self.odom_received = True
         self.last_odom_time = time.time()
         self.odom_count += 1
+        # Debug: print when callback is called (first 20 times)
+        if self.odom_count <= 20:
+            pos = msg.pose.pose.position
+            # print(f"[ODOM CALLBACK] Called! Count={self.odom_count}, pos=({pos.x:.3f}, {pos.y:.3f}), twist.x={msg.twist.twist.linear.x:.4f}", flush=True)
     
     def spin_once(self, timeout_sec: float = 0.1):
         """Spin executor once to process callbacks.
@@ -169,23 +233,23 @@ class AckermannCityEnv(Node):
         Args:
             timeout_sec: Timeout for spinning
         """
-        if self.executor is not None:
-            try:
-                self.executor.spin_once(timeout_sec=timeout_sec)
-            except Exception as e:
-                # If executor fails, use rclpy.spin_once as fallback
+        # Always use rclpy.spin_once directly - it's more reliable than executor.spin_once
+        # The executor might not process all pending messages with spin_once
+        try:
+            # Spin multiple times to process all pending messages in queue
+            for _ in range(5):
+                rclpy.spin_once(self, timeout_sec=timeout_sec)
+        except Exception as e:
+            # If spin_once fails, try executor as fallback
+            if self.executor is not None:
                 try:
-                    rclpy.spin_once(self, timeout_sec=timeout_sec)
+                    for _ in range(5):
+                        self.executor.spin_once(timeout_sec=timeout_sec)
                 except Exception:
                     pass
-        else:
-            # Fallback: use rclpy.spin_once to process callbacks
-            try:
-                rclpy.spin_once(self, timeout_sec=timeout_sec)
-            except Exception as e:
-                # Last resort: just wait a bit
-                import time
-                time.sleep(0.01)
+            # Last resort: just wait a bit to allow callbacks to process
+            import time
+            time.sleep(0.001)
     
     def reset(self) -> np.ndarray:
         """Reset the environment and return initial observation.
@@ -211,8 +275,11 @@ class AckermannCityEnv(Node):
         self.prev_position = None
         self.prev_position_time = None
         self.episode_step_count = 0
+        self.episode_cumulative_reward = 0.0  # Reset cumulative reward for new episode
         self.prev_velocity_for_efficiency = None
         self.battery_consumed_this_step = 0.0
+
+        self.cumulative_reward_components = self._init_reward_component_totals()
         self.delivery_start_time = time.time()
         self.delivery_elapsed_time = 0.0
         self.delivery_on_time = False
@@ -264,6 +331,20 @@ class AckermannCityEnv(Node):
         # Initialize current_step_velocity before get_observation() (will be 0.0 on reset)
         self.current_step_velocity = 0.0
         
+        # Ensure car is ready to receive commands by publishing a zero command
+        # This ensures the publisher is active and the car controller is listening
+        if self.cmd_vel_pub is not None:
+            try:
+                init_cmd = Twist()
+                init_cmd.linear.x = 0.0
+                init_cmd.angular.z = 0.0
+                self.cmd_vel_pub.publish(init_cmd)
+                # Spin a few times to ensure the message is sent
+                for _ in range(3):
+                    self.spin_once(timeout_sec=0.01)
+            except Exception as e:
+                safe_log(self.get_logger().warn, f"Could not publish initialization command: {e}")
+        
         obs = self.get_observation()
         return obs
     
@@ -282,54 +363,155 @@ class AckermannCityEnv(Node):
         cmd.linear.x = float(action[0])
         cmd.angular.z = float(action[1])
         
-        context_valid = rclpy.ok()
-        if context_valid and self.cmd_vel_pub is not None:
+        # Always try to publish - don't check rclpy.ok() as it may be False even when context is valid
+        if self.cmd_vel_pub is not None:
             try:
-                self.cmd_vel_pub.publish(cmd)
+                # Publish multiple times to ensure message is received
+                for _ in range(3):
+                    self.cmd_vel_pub.publish(cmd)
+                # Debug: print first few commands to verify publishing
+                if self.step_count <= 5:
+                    sub_count = self.cmd_vel_pub.get_subscription_count()
+                    # print(f"[DEBUG] Published cmd_vel: linear.x={cmd.linear.x:.3f}, angular.z={cmd.angular.z:.3f}, subscribers={sub_count}", flush=True)
+                # Spin multiple times to ensure message is sent and processed
+                for _ in range(3):
+                    self.spin_once(timeout_sec=0.01)
             except Exception as e:
-                if context_valid and "context" not in str(e).lower():
-                    try:
-                        self.get_logger().error(f"Failed to publish command: {e}")
-                    except:
-                        pass
+                # Always log errors - we need to know if publishing is failing
+                print(f"[ERROR] Failed to publish command: {e}", flush=True)
+                try:
+                    self.get_logger().error(f"Failed to publish command: {e}")
+                except:
+                    pass
+        else:
+            if self.step_count <= 5:
+                print(f"[ERROR] cmd_vel_pub is None! Cannot publish commands.", flush=True)
         
         self.step_count += 1
         scan_count_before = self.scan_count
         odom_count_before = self.odom_count
         
+        # Store previous odometry position to detect changes even if count doesn't increase
+        prev_odom_position = None
+        if self.latest_odom is not None:
+            pos = self.latest_odom.pose.pose.position
+            prev_odom_position = np.array([pos.x, pos.y, pos.z])
+        
         start_time = time.time()
         max_wait_time = 2.0
-        min_spins = 20
+        min_spins = 100  # Much more aggressive - ensure we process messages
         
         spin_iterations = 0
+        odom_changed = False
+        last_odom_stamp = None
+        last_odom_count = self.odom_count
+        if self.latest_odom is not None:
+            last_odom_stamp = self.latest_odom.header.stamp
+        
         while (time.time() - start_time) < max_wait_time or spin_iterations < min_spins:
-            self.spin_once(timeout_sec=0.05)
+            # Spin more aggressively - try multiple times per iteration
+            for _ in range(5):
+                self.spin_once(timeout_sec=0.01)
             spin_iterations += 1
-            if spin_iterations >= min_spins and (self.scan_count > scan_count_before and self.odom_count > odom_count_before):
-                break
+            
+            # Check if callback was called (count increased)
+            if self.odom_count > last_odom_count:
+                odom_changed = True
+                last_odom_count = self.odom_count
+                if self.episode_step_count <= 5:
+                    # print(f"[STEP] Odom callback triggered! New count={self.odom_count}", flush=True)
+                    pass
+            
+            # Check if we got new messages by comparing timestamps (more reliable than count)
+            if self.latest_odom is not None:
+                current_stamp = self.latest_odom.header.stamp
+                if last_odom_stamp is not None:
+                    # Check if timestamp changed (new message received)
+                    if (current_stamp.sec != last_odom_stamp.sec or 
+                        current_stamp.nanosec != last_odom_stamp.nanosec):
+                        odom_changed = True
+                        last_odom_stamp = current_stamp
+                        if self.episode_step_count <= 5:
+                            # print(f"[STEP] Odom timestamp changed! New stamp={current_stamp.sec}.{current_stamp.nanosec}", flush=True)
+                            pass
+                
+                # Also check if position changed (even if timestamp didn't change)
+                pos = self.latest_odom.pose.pose.position
+                current_pos = np.array([pos.x, pos.y, pos.z])
+                if prev_odom_position is not None:
+                    position_change = np.linalg.norm(current_pos - prev_odom_position)
+                    if position_change > 0.001:  # Position actually changed
+                        odom_changed = True
+                        prev_odom_position = current_pos.copy()  # Update for next check
+                        if self.episode_step_count <= 5:
+                            # print(f"[STEP] Position changed! Change={position_change:.4f}m", flush=True)
+                            pass
+            
+            if spin_iterations >= min_spins:
+                # Check both count increase OR position/timestamp change
+                count_increased = (self.scan_count > scan_count_before and self.odom_count > odom_count_before)
+                if count_increased or odom_changed:
+                    break
         
         if self.scan_count == scan_count_before:
             safe_log(self.get_logger().warn, f"[SENSOR] No new LiDAR data received after {spin_iterations} spins (count={self.scan_count})")
-        if self.odom_count == odom_count_before:
-            safe_log(self.get_logger().warn, f"[SENSOR] No new odometry data received after {spin_iterations} spins (count={self.odom_count})")
+        if self.odom_count == odom_count_before and not odom_changed:
+            safe_log(self.get_logger().warn, f"[SENSOR] No new odometry data received after {spin_iterations} spins (count={self.odom_count}, position_changed={odom_changed})")
         
         # Calculate velocity BEFORE updating prev_position (so it uses previous step's position)
+        # IMPORTANT: Use latest_odom even if odom_count didn't increase - the message might have been updated
         if self.latest_odom is not None:
             pos = self.latest_odom.pose.pose.position
             position = np.array([pos.x, pos.y, pos.z])
-            # Get velocity BEFORE updating prev_position (uses previous step's position)
-            self.current_step_velocity, _ = self.get_velocity_and_steering()
             
-            # NOW update previous position for NEXT step's velocity calculation
-            self.prev_position = position.copy()
-            # Use odometry timestamp for more accurate timing (with fallback)
+            # Get current odometry timestamp
             odom_stamp = self.latest_odom.header.stamp
             odom_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
             wall_time = time.time()
             if odom_time > 0 and abs(odom_time - wall_time) < 3600:
-                self.prev_position_time = odom_time
+                current_time = odom_time
             else:
-                self.prev_position_time = wall_time
+                current_time = wall_time
+            
+            # Get velocity from odometry twist (primary source - most reliable)
+            twist = self.latest_odom.twist.twist
+            velocity_from_twist = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+            
+            # Also calculate from position change as validation/backup
+            velocity_from_position = None
+            position_changed = False
+            distance = 0.0
+            if self.prev_position is not None and self.prev_position_time is not None:
+                dt = current_time - self.prev_position_time
+                if dt > 0.0001:  # Valid time difference
+                    position_change = position - self.prev_position
+                    distance = np.linalg.norm(position_change)
+                    if distance > 0.001:  # Position actually changed (1mm threshold)
+                        velocity_from_position = distance / dt
+                        position_changed = True
+            
+            # Prefer twist velocity (direct from odometry), but use position-based if twist is zero and position changed
+            if velocity_from_twist > 0.01:  # Twist has meaningful velocity
+                self.current_step_velocity = velocity_from_twist
+            elif velocity_from_position is not None and velocity_from_position > 0.01:
+                # Twist is zero/very small but position changed - use position-based
+                self.current_step_velocity = velocity_from_position
+            else:
+                # Both are zero or unavailable - use twist (might be 0.0 if car is stopped)
+                self.current_step_velocity = velocity_from_twist
+            
+            # Debug output for first 20 steps to diagnose issues
+            if False and self.episode_step_count <= 20:
+                pos_based_str = f"{velocity_from_position:.4f}" if velocity_from_position is not None else "N/A"
+                pos_change_str = f"{distance:.4f}m" if position_changed else f"{distance:.4f}m (no change)"
+                print(f"[VEL DEBUG] Step {self.episode_step_count}: twist={velocity_from_twist:.4f} m/s, pos_based={pos_based_str} m/s, using={self.current_step_velocity:.4f} m/s", flush=True)
+                if self.prev_position is not None:
+                    print(f"[VEL DEBUG]   prev_pos=({self.prev_position[0]:.3f}, {self.prev_position[1]:.3f}), curr_pos=({position[0]:.3f}, {position[1]:.3f}), change={pos_change_str}", flush=True)
+                print(f"[VEL DEBUG]   twist.linear.x={twist.linear.x:.4f}, twist.linear.y={twist.linear.y:.4f}, twist.linear.z={twist.linear.z:.4f}, odom_count={self.odom_count}", flush=True)
+            
+            # NOW update previous position for NEXT step's velocity calculation
+            self.prev_position = position.copy()
+            self.prev_position_time = current_time
             
             battery_before = self.battery.get_battery_level()
             self.battery.update(position, self.current_step_velocity, dt=0.1)
@@ -340,7 +522,13 @@ class AckermannCityEnv(Node):
             self.battery_consumed_this_step = 0.0
         
         self.episode_step_count += 1
+        
+        # Compute reward first
         reward, reward_info = self.compute_reward()
+        
+        # Update cumulative episode reward AFTER computing (will be shown in next step's breakdown)
+        self.episode_cumulative_reward += reward
+        reward_info['episode_cumulative_reward'] = self.episode_cumulative_reward
         
         if self.is_goal_reached() and self.current_goal is not None:
             next_goal = self.delivery_points.get_next_point(self.current_goal)
@@ -366,11 +554,9 @@ class AckermannCityEnv(Node):
             except:
                 pass
         
-        velocity = -1.0
-        distance_to_goal = -1.0
-        if self.latest_odom is not None:
-            velocity, _ = self.get_velocity_and_steering()
-            distance_to_goal = self.get_distance_to_goal()
+        # Use stored velocity (already calculated in step())
+        velocity = self.current_step_velocity if hasattr(self, 'current_step_velocity') else -1.0
+        distance_to_goal = self.get_distance_to_goal() if self.latest_odom is not None else -1.0
         
         current_time = time.time()
         scan_is_fresh = (self.last_scan_time is not None and 
@@ -462,6 +648,7 @@ class AckermannCityEnv(Node):
         """Extract velocity and steering from odometry.
         
         Calculates velocity from position changes if odometry twist is not available/accurate.
+        Uses stored current_step_velocity if available (calculated in step()).
         
         Returns:
             Tuple of (velocity, steering):
@@ -471,51 +658,46 @@ class AckermannCityEnv(Node):
         if self.latest_odom is None:
             return (0.0, 0.0)
         
-        # Try to get velocity from odometry twist first
+        # Get steering from twist
         twist = self.latest_odom.twist.twist
-        velocity_from_twist = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
         steering = twist.angular.z
         
-        # Always calculate velocity from position changes if we have previous position (more accurate)
-        if self.prev_position is not None and self.prev_position_time is not None:
-            pos = self.latest_odom.pose.pose.position
-            current_position = np.array([pos.x, pos.y, pos.z])
-            
-            # Use odometry header timestamp for more accurate dt (in seconds)
-            # Fallback to time.time() if timestamp seems invalid
-            odom_stamp = self.latest_odom.header.stamp
-            odom_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
-            wall_time = time.time()
-            
-            # Use odom timestamp if it's reasonable, otherwise use wall time
-            if odom_time > 0 and abs(odom_time - wall_time) < 3600:  # Within 1 hour
-                current_time = odom_time
-            else:
-                current_time = wall_time
-            
-            dt = current_time - self.prev_position_time
-            
-            # Use a smaller threshold for dt (0.0001s = 0.1ms) to catch fast updates
-            if dt > 0.0001:  # Avoid division by zero, but allow very small dt
-                position_change = current_position - self.prev_position
-                distance = np.linalg.norm(position_change)
-                velocity_from_position = distance / dt
-                # Use position-based velocity (more accurate than twist)
-                velocity = velocity_from_position
-                # Always log for debugging - flush immediately
-                import sys
-                print(f"[VELOCITY DEBUG] dt={dt:.6f}s, distance={distance:.6f}m, velocity={velocity:.4f} m/s, twist={velocity_from_twist:.4f} m/s", flush=True)
-                print(f"[VELOCITY DEBUG] prev_pos=({self.prev_position[0]:.3f}, {self.prev_position[1]:.3f}, {self.prev_position[2]:.3f}), curr_pos=({current_position[0]:.3f}, {current_position[1]:.3f}, {current_position[2]:.3f})", flush=True)
-            else:
-                # dt too small, use twist
-                velocity = velocity_from_twist
-                import sys
-                print(f"[VELOCITY DEBUG] dt too small ({dt:.6f}s), using twist: {velocity_from_twist:.4f} m/s", flush=True)
+        # Use stored velocity if available (calculated in step() with proper position tracking)
+        # Otherwise fallback to calculating from position or twist
+        if hasattr(self, 'current_step_velocity') and self.current_step_velocity is not None:
+            velocity = self.current_step_velocity
         else:
-            # No previous position, use twist
-            velocity = velocity_from_twist
-            import sys
-            print(f"[VELOCITY DEBUG] No prev_position (prev={self.prev_position is not None}, time={self.prev_position_time is not None}), using twist: {velocity_from_twist:.4f} m/s", flush=True)
+            # Fallback: calculate velocity from position changes or twist
+            velocity_from_twist = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
+            
+            if self.prev_position is not None and self.prev_position_time is not None:
+                pos = self.latest_odom.pose.pose.position
+                current_position = np.array([pos.x, pos.y, pos.z])
+                
+                # Use odometry header timestamp for more accurate dt (in seconds)
+                odom_stamp = self.latest_odom.header.stamp
+                odom_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+                wall_time = time.time()
+                
+                # Use odom timestamp if it's reasonable, otherwise use wall time
+                if odom_time > 0 and abs(odom_time - wall_time) < 3600:  # Within 1 hour
+                    current_time = odom_time
+                else:
+                    current_time = wall_time
+                
+                dt = current_time - self.prev_position_time
+                
+                if dt > 0.0001:  # Valid time difference
+                    position_change = current_position - self.prev_position
+                    distance = np.linalg.norm(position_change)
+                    if distance > 0.001:  # Position actually changed (1mm threshold)
+                        velocity = distance / dt
+                    else:
+                        velocity = velocity_from_twist
+                else:
+                    velocity = velocity_from_twist
+            else:
+                velocity = velocity_from_twist
         
         return (velocity, steering)
     
@@ -720,11 +902,16 @@ class AckermannCityEnv(Node):
         if has_goal and has_odom:
             current_distance = self.get_distance_to_goal()
             
+            # Store in reward_info for debugging
+            reward_info['current_distance'] = current_distance
+            reward_info['prev_distance'] = self.prev_distance_to_goal
+            
             if self.prev_distance_to_goal is not None:
                 progress = self.prev_distance_to_goal - current_distance
                 progress_reward = self.reward_progress_scale * progress
                 reward += progress_reward
                 reward_info['reward_progress'] = progress_reward
+                reward_info['progress_meters'] = progress
                 # Debug: log if no progress despite movement
                 if abs(progress) < 0.01 and self.latest_odom is not None:
                     velocity = self.current_step_velocity
@@ -733,7 +920,9 @@ class AckermannCityEnv(Node):
                             f"[PROGRESS] Car moving ({velocity:.2f} m/s) but no progress: prev={self.prev_distance_to_goal:.2f}m, curr={current_distance:.2f}m, diff={progress:.4f}m")
             else:
                 reward_info['reward_progress'] = 0.0
+                reward_info['progress_meters'] = 0.0
             
+            # Update for next step - CRITICAL: This must happen every step
             self.prev_distance_to_goal = current_distance
             if self.is_goal_reached():
                 reward += self.reward_goal_reached
@@ -897,32 +1086,74 @@ class AckermannCityEnv(Node):
         if self.latest_odom is not None:
             distance_to_goal = self.get_distance_to_goal()
         
-        # Print formatted reward breakdown
-        print(f"\n{'='*70}")
+        reward_component_keys = [
+            'reward_progress',
+            'reward_goal',
+            'reward_delivery_on_time',
+            'reward_battery_conservation',
+            'reward_efficiency',
+            'penalty_delivery_late',
+            'penalty_offroad',
+            'penalty_collision',
+            'penalty_high_speed',
+            'penalty_aggressive_change',
+            'penalty_time',
+        ]
+        for key in reward_component_keys:
+            self.cumulative_reward_components[key] += reward_info.get(key, 0.0)
+
+        separator_line = "-" * 70
+        equal_line = "=" * 70
+        print(f"\n{equal_line}")
         print(f"STEP #{self.episode_step_count} - REWARD BREAKDOWN:")
-        print(f"{'='*70}")
-        print(f"  Progress Reward:        {reward_info.get('reward_progress', 0.0):+10.4f}")
-        print(f"  Goal Reward:            {reward_info.get('reward_goal', 0.0):+10.4f}")
-        print(f"  Delivery On-time:       {reward_info.get('reward_delivery_on_time', 0.0):+10.4f}")
-        print(f"  Battery Conservation:   {reward_info.get('reward_battery_conservation', 0.0):+10.4f}")
-        print(f"  Efficiency Reward:      {reward_info.get('reward_efficiency', 0.0):+10.4f}")
-        print(f"  Delivery Late Penalty:  {reward_info.get('penalty_delivery_late', 0.0):+10.4f}")
-        print(f"  Off-road Penalty:       {reward_info.get('penalty_offroad', 0.0):+10.4f}")
-        print(f"  Collision Penalty:      {reward_info.get('penalty_collision', 0.0):+10.4f}")
-        print(f"  High Speed Penalty:     {reward_info.get('penalty_high_speed', 0.0):+10.4f}")
-        print(f"  Aggressive Change:      {reward_info.get('penalty_aggressive_change', 0.0):+10.4f}")
-        print(f"  Time Penalty:           {reward_info.get('penalty_time', 0.0):+10.4f}")
-        print(f"{'-'*70}")
-        print(f"  TOTAL REWARD:           {reward:+10.4f}")
-        print(f"{'='*70}")
-        print(f"  Diagnostics: velocity={velocity:.2f} m/s | dist_to_goal={distance_to_goal:.2f}m | min_lidar={min_lidar_dist:.2f}m | road_dist={road_distance:.2f}m")
-        if reward_info.get('prev_distance') is not None:
-            print(f"  Progress: moved {reward_info.get('progress_meters', 0.0):+.3f}m (prev={reward_info.get('prev_distance', 0.0):.2f}m -> curr={reward_info.get('current_distance', 0.0):.2f}m)")
-        print(f"  Collision Check: min_lidar={min_lidar_dist:.2f}m vs threshold={self.collision_threshold:.2f}m {'[COLLISION!]' if is_colliding else '[OK]'}")
-        if self.delivery_deadline is not None:
-            status = "(LATE)" if self.delivery_elapsed_time > self.delivery_deadline else "(on-time)"
-            print(f"  Delivery: {self.delivery_elapsed_time:.1f}s / {self.delivery_deadline:.1f}s {status}")
-        print(f"{'='*70}\n")
+        print(f"{equal_line}")
+        print(f"  Progress Reward:           {reward_info.get('reward_progress', 0.0):+10.4f}")
+        print(f"  Goal Reward:               {reward_info.get('reward_goal', 0.0):+10.4f}")
+        print(f"  Delivery On-time:          {reward_info.get('reward_delivery_on_time', 0.0):+10.4f}")
+        print(f"  Battery Conservation:      {reward_info.get('reward_battery_conservation', 0.0):+10.4f}")
+        print(f"  Efficiency Reward:         {reward_info.get('reward_efficiency', 0.0):+10.4f}")
+        print(f"  Delivery Late Penalty:     {reward_info.get('penalty_delivery_late', 0.0):+10.4f}")
+        print(f"  Off-road Penalty:          {reward_info.get('penalty_offroad', 0.0):+10.4f}")
+        print(f"  Collision Penalty:         {reward_info.get('penalty_collision', 0.0):+10.4f}")
+        print(f"  High Speed Penalty:        {reward_info.get('penalty_high_speed', 0.0):+10.4f}")
+        print(f"  Aggressive Change:         {reward_info.get('penalty_aggressive_change', 0.0):+10.4f}")
+        print(f"  Time Penalty:              {reward_info.get('penalty_time', 0.0):+10.4f}")
+        training_after = self.training_cumulative_reward + reward
+        reward_info['training_cumulative_reward'] = training_after
+        print(separator_line)
+        print()
+        distance_line = f"  Distance to goal: {distance_to_goal:.2f} m"
+        velocity_line = f"  Velocity: {velocity:.2f} m/s"
+        collision_status = 'COLLISION DETECTED!' if is_colliding else 'NO COLLISION'
+        collision_details = ""
+        if is_colliding:
+            if is_colliding_lidar:
+                collision_details += f" [LiDAR: {min_lidar_dist:.2f}m]"
+            if is_colliding_offroad:
+                collision_details += f" [Off-road: {road_distance:.2f}m]"
+        collision_line = f"  Collision detected: {'true' if is_colliding else 'false'}"
+        if collision_details:
+            collision_line += collision_details.replace('[', ' [')
+        on_time_status = reward_info.get('delivery_on_time', False)
+        delivery_elapsed = self.delivery_elapsed_time if self.delivery_elapsed_time is not None else -1.0
+        delivery_deadline = self.delivery_deadline if self.delivery_deadline is not None else -1.0
+        if delivery_deadline > 0 and delivery_elapsed >= 0:
+            delivery_line = f"  On time: {'true' if on_time_status else 'false'} | {delivery_elapsed:.1f}s / {delivery_deadline:.1f}s"
+        else:
+            delivery_line = "  On time: n/a"
+        print(distance_line)
+        print()
+        print(velocity_line)
+        print()
+        print(collision_line)
+        print()
+        print(delivery_line)
+        print(f"\n{separator_line}\n")
+        print(f"  STEP REWARD:                 {reward:+10.4f}")
+        cumulative_after = self.episode_cumulative_reward + reward
+        print(f"  EPISODE CUMULATIVE:          {cumulative_after:+10.4f} (episode total)")
+        print(f"  TRAINING CUMULATIVE:         {training_after:+10.4f} (accumulated points since training started, every step counts)")
+        self.training_cumulative_reward = training_after
         
         return reward, reward_info
     
@@ -940,19 +1171,39 @@ class AckermannCityEnv(Node):
         # Note: Goal reached is handled in step() to move to next goal
         # Only terminate if all goals are completed (handled in step())
         
-        # Terminate if collision (LiDAR or off-road)
-        if self.is_collision():
-            terminated = True
+        # Check for LiDAR collision
+        is_colliding_lidar = False
+        if self.latest_scan is not None:
+            try:
+                ranges = np.array(self.latest_scan.ranges)
+                valid_ranges = ranges[np.isfinite(ranges)]
+                if len(valid_ranges) > 0:
+                    min_distance = np.min(valid_ranges)
+                    is_colliding_lidar = min_distance <= self.collision_threshold
+            except:
+                pass
         
-        # Also check off-road collision (sidewalk/curb)
+        # Check for off-road collision
+        is_colliding_offroad = False
         if self.latest_odom is not None:
             road_distance = self.get_road_distance()
             if road_distance > self.offroad_collision_threshold:
-                terminated = True
+                is_colliding_offroad = True
+        
+        # Terminate if any collision detected
+        if is_colliding_lidar or is_colliding_offroad:
+            terminated = True
+            collision_type = []
+            if is_colliding_lidar:
+                collision_type.append("LiDAR")
+            if is_colliding_offroad:
+                collision_type.append("Off-road")
+            safe_log(self.get_logger().warn, f"[TERMINATION] Episode terminated due to collision: {', '.join(collision_type)}")
         
         # Truncate if battery depleted
         if self.battery.is_depleted():
             truncated = True
+            safe_log(self.get_logger().warn, "[TERMINATION] Episode truncated due to battery depletion")
         
         return terminated, truncated
     
@@ -962,18 +1213,44 @@ class AckermannCityEnv(Node):
         This should be called before closing the environment to ensure
         the car stops moving when training ends.
         """
-        if self.cmd_vel_pub is not None and rclpy.ok():
+        print("\n[STOP] Stopping car...", flush=True)
+        stop_cmd = Twist()
+        stop_cmd.linear.x = 0.0
+        stop_cmd.angular.z = 0.0
+        
+        if self.cmd_vel_pub is not None:
             try:
-                stop_cmd = Twist()
-                stop_cmd.linear.x = 0.0
-                stop_cmd.angular.z = 0.0
-                # Publish stop command multiple times to ensure it's received
-                for _ in range(5):
+                # Publish stop command many times to ensure it's received
+                # Use a longer spin to ensure messages are processed
+                for i in range(10):
                     self.cmd_vel_pub.publish(stop_cmd)
-                    # Spin briefly to ensure message is sent
+                    # Spin multiple times to ensure message is sent and processed
+                    for _ in range(5):
+                        self.spin_once(timeout_sec=0.02)
+                    if i == 0:
+                        print(f"[STOP] Published stop command {i+1}/10", flush=True)
+                
+                # Final spin to ensure last message is processed
+                for _ in range(10):
                     self.spin_once(timeout_sec=0.05)
+                
+                print("[STOP] Car stop command sent successfully", flush=True)
                 safe_log(self.get_logger().info, "Car stopped (zero velocity command sent)")
             except Exception as e:
-                # Ignore errors if context is invalid or publisher is unavailable
+                print(f"[STOP] Error sending stop command: {e}", flush=True)
                 safe_log(self.get_logger().warn, f"Could not send stop command: {e}")
+        else:
+            print(f"[STOP] Warning: cmd_vel_pub is None", flush=True)
+        
+        # Also try to publish directly via ROS 2 command as fallback
+        try:
+            import subprocess
+            # Publish zero velocity directly to /cmd_vel topic
+            subprocess.run(['ros2', 'topic', 'pub', '--once', '/cmd_vel', 'geometry_msgs/msg/Twist', 
+                          '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'],
+                         timeout=2.0, check=False, capture_output=True)
+            print("[STOP] Also sent stop command via ros2 topic pub", flush=True)
+        except Exception as e:
+            # Ignore if ros2 command not available
+            pass
 

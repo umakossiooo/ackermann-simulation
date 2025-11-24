@@ -20,7 +20,7 @@ private:
 public:
     rclcpp::Client<saye_msgs::srv::ShareMap>::SharedPtr client;
     void timer_callback();
-    void service_callback(const saye_msgs::srv::ShareMap::Request::SharedPtr request, const saye_msgs::srv::ShareMap::Response::SharedPtr response);
+    void service_callback([[maybe_unused]] const saye_msgs::srv::ShareMap::Request::SharedPtr request, const saye_msgs::srv::ShareMap::Response::SharedPtr response);
     void sub_callback(saye_msgs::msg::Map::SharedPtr msg);
 
     Control() : Node("control_node")
@@ -92,7 +92,7 @@ void Control::sub_callback(saye_msgs::msg::Map::SharedPtr msg)
     // gazebo dan laser verisi alınacak ve işlenecek. merged map oluşturulacak.
     RCLCPP_ERROR(get_logger(), "data: %d", msg->header.stamp.sec);
 }
-void Control::service_callback(const saye_msgs::srv::ShareMap::Request::SharedPtr request, const saye_msgs::srv::ShareMap::Response::SharedPtr response)
+void Control::service_callback([[maybe_unused]] const saye_msgs::srv::ShareMap::Request::SharedPtr request, const saye_msgs::srv::ShareMap::Response::SharedPtr response)
 {
     auto merged_map = nav_msgs::msg::OccupancyGrid(); // TODO: merged map paylaşılacak.
     response->custom_occupany_grid = merged_map;

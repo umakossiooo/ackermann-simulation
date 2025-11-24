@@ -11,6 +11,7 @@ Usage:
 import argparse
 import os
 import sys
+import signal
 from pathlib import Path
 import rclpy
 from stable_baselines3 import PPO
@@ -24,6 +25,10 @@ package_path = Path(__file__).parent.parent
 sys.path.insert(0, str(package_path))
 
 from ackermann_drl.envs.gym_wrapper import AckermannGymEnv
+
+# Global references for signal handler
+training_env = None
+training_vec_env = None
 
 
 class RewardLoggingCallback(BaseCallback):
@@ -94,7 +99,7 @@ class RewardLoggingCallback(BaseCallback):
             # Print to console periodically OR when episode ends (for short episodes)
             should_print = (self.step_count % self.log_interval == 0) or episode_ended
             
-            if should_print:
+            if should_print and self.verbose > 0:
                 # Get diagnostic info from first info dict
                 first_info = infos[0] if infos and isinstance(infos[0], dict) else {}
                 has_scan = first_info.get('has_scan', False)
@@ -137,8 +142,8 @@ class RewardLoggingCallback(BaseCallback):
                 odom_is_fresh = first_info.get('odom_is_fresh', False)
                 scan_count = first_info.get('scan_count', 0)
                 odom_count = first_info.get('odom_count', 0)
-                collision_threshold = 0.3  # From ackermann_city_env (reduced for narrow streets)
-                offroad_collision_threshold = 1.0  # From ackermann_city_env (updated to match - only severe off-road triggers collision)
+                collision_threshold = 1.5  # From ackermann_city_env (LiDAR collision threshold)
+                offroad_collision_threshold = 0.5  # From ackermann_city_env (off-road/sidewalk collision threshold)
                 # Get delivery time info
                 delivery_elapsed = first_info.get('delivery_elapsed_time', -1.0)
                 delivery_deadline = first_info.get('delivery_deadline', -1.0)
@@ -170,8 +175,89 @@ def make_env():
     return env
 
 
+def stop_car_safely(env):
+    """Stop the car safely by calling stop() on the environment."""
+    try:
+        if env is None:
+            return
+        
+        # Check if it's AckermannCityEnv directly (has stop method and cmd_vel_pub)
+        if hasattr(env, 'stop') and hasattr(env, 'cmd_vel_pub'):
+            env.stop()
+            return
+        
+        # Handle DummyVecEnv - it has envs list
+        if hasattr(env, 'envs') and isinstance(env.envs, list) and len(env.envs) > 0:
+            # DummyVecEnv wraps environments in a list
+            inner_env = env.envs[0]
+            # inner_env could be Monitor -> AckermannGymEnv -> AckermannCityEnv
+            if hasattr(inner_env, 'env'):
+                # Monitor -> AckermannGymEnv
+                if hasattr(inner_env.env, 'env'):
+                    # AckermannGymEnv -> AckermannCityEnv
+                    inner_env.env.env.stop()
+                else:
+                    # Direct AckermannGymEnv (shouldn't happen but handle it)
+                    if hasattr(inner_env.env, 'stop'):
+                        inner_env.env.stop()
+            else:
+                # Direct environment (shouldn't happen but handle it)
+                if hasattr(inner_env, 'stop'):
+                    inner_env.stop()
+        # Handle direct environment access
+        elif hasattr(env, 'env'):
+            # It's wrapped (Monitor or AckermannGymEnv)
+            if hasattr(env.env, 'env'):
+                # Monitor -> AckermannGymEnv -> AckermannCityEnv
+                env.env.env.env.stop()
+            else:
+                # AckermannGymEnv -> AckermannCityEnv
+                if hasattr(env.env, 'env') and hasattr(env.env.env, 'stop'):
+                    env.env.env.stop()
+                elif hasattr(env.env, 'stop'):
+                    env.env.stop()
+        # Direct AckermannGymEnv or other with stop method
+        elif hasattr(env, 'stop'):
+            env.stop()
+    except Exception as e:
+        print(f"Warning: Could not stop car: {e}")
+
+
 def main():
     """Main training function."""
+    global training_env, training_vec_env
+    
+    def signal_handler(sig, frame):
+        """Handle Ctrl+C to stop the car immediately."""
+        print("\n\n⚠️  Interrupt received! Stopping car immediately...", flush=True)
+        try:
+            # Stop car via environment
+            if training_env is not None:
+                print("[SIGNAL] Stopping via training_env...", flush=True)
+                stop_car_safely(training_env)
+            if training_vec_env is not None:
+                print("[SIGNAL] Stopping via training_vec_env...", flush=True)
+                stop_car_safely(training_vec_env)
+            
+            # Also try direct ROS command as backup
+            try:
+                import subprocess
+                print("[SIGNAL] Sending direct stop command via ros2 topic...", flush=True)
+                subprocess.run(['ros2', 'topic', 'pub', '--once', '/cmd_vel', 'geometry_msgs/msg/Twist', 
+                              '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'],
+                             timeout=1.0, check=False, capture_output=True)
+            except:
+                pass
+        except Exception as e:
+            print(f"[SIGNAL] Error in signal handler: {e}", flush=True)
+        print("Car stopped. Exiting...", flush=True)
+        # Don't exit immediately - let the KeyboardInterrupt handler in the try block handle cleanup
+        raise KeyboardInterrupt
+    
+    # Register signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     parser = argparse.ArgumentParser(description='Train PPO agent for Ackermann vehicle')
     parser.add_argument('--total-timesteps', type=int, default=100000,
                        help='Total number of timesteps to train (default: 100000)')
@@ -239,6 +325,7 @@ def main():
     # Create environment
     print("Creating environment...")
     env = make_env()
+    training_env = env  # Store for signal handler
     
     # Wrap with Monitor for logging (tensorboard optional)
     try:
@@ -252,6 +339,7 @@ def main():
     
     # Create vectorized environment (single environment)
     vec_env = DummyVecEnv([lambda: monitor_env])
+    training_vec_env = vec_env  # Store for signal handler
     
     print(f"Observation space: {env.observation_space}")
     print(f"Action space: {env.action_space}")
@@ -294,7 +382,7 @@ def main():
     )
     
     # Set up reward logging callback
-    reward_callback = RewardLoggingCallback(verbose=1)
+    reward_callback = RewardLoggingCallback(verbose=0)
     
     # Combine callbacks
     from stable_baselines3.common.callbacks import CallbackList
@@ -330,12 +418,43 @@ def main():
         
     except KeyboardInterrupt:
         print()
+        print("=" * 60)
         print("Training interrupted by user")
+        print("=" * 60)
+        # Stop the car immediately - this is critical!
+        print("\n[CRITICAL] Stopping car immediately...")
+        try:
+            stop_car_safely(env)
+            stop_car_safely(vec_env)
+            # Give it a moment to process
+            import time
+            time.sleep(0.5)
+            # Try one more time to be sure
+            stop_car_safely(env)
+            stop_car_safely(vec_env)
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"[ERROR] Error stopping car: {e}")
+            # Try direct ROS command as last resort
+            try:
+                import subprocess
+                for _ in range(3):
+                    subprocess.run(['ros2', 'topic', 'pub', '--once', '/cmd_vel', 'geometry_msgs/msg/Twist', 
+                                  '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'],
+                                 timeout=1.0, check=False, capture_output=True)
+                    time.sleep(0.2)
+            except:
+                pass
+        print("[CRITICAL] Car stop commands sent")
+        
         # Save model before exiting
         interrupted_model_path = checkpoint_dir / 'ppo_ackermann_interrupted'
-        print(f"Saving interrupted model to {interrupted_model_path}...")
-        model.save(str(interrupted_model_path))
-        print("✓ Model saved")
+        print(f"\nSaving interrupted model to {interrupted_model_path}...")
+        try:
+            model.save(str(interrupted_model_path))
+            print("✓ Model saved")
+        except Exception as e:
+            print(f"Warning: Could not save model: {e}")
     
     except Exception as e:
         print()
@@ -352,16 +471,58 @@ def main():
         raise
     
     finally:
-        # Cleanup
+        # Cleanup - always stop the car (this is the last chance!)
         print()
-        print("Cleaning up...")
-        vec_env.close()
-        env.close()
+        print("=" * 60)
+        print("Final cleanup - ensuring car is stopped...")
+        print("=" * 60)
+        try:
+            # Stop the car first - multiple attempts
+            import time
+            for attempt in range(3):
+                print(f"[CLEANUP] Stopping car (attempt {attempt+1}/3)...")
+                stop_car_safely(env)
+                stop_car_safely(vec_env)
+                time.sleep(0.3)
+            
+            # Properly close and destroy the environment
+            try:
+                print("[CLEANUP] Closing environment...")
+                vec_env.close()
+                env.close()
+            except Exception as e:
+                print(f"[CLEANUP] Warning during environment close: {e}")
+            
+            # Also try direct ROS command
+            try:
+                import subprocess
+                print("[CLEANUP] Sending final stop command via ros2 topic...")
+                for _ in range(3):
+                    subprocess.run(['ros2', 'topic', 'pub', '--once', '/cmd_vel', 'geometry_msgs/msg/Twist', 
+                                  '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'],
+                                 timeout=1.0, check=False, capture_output=True)
+                    time.sleep(0.2)
+            except:
+                pass
+        except Exception as e:
+            print(f"[CLEANUP] Error during cleanup: {e}")
+        
+        try:
+            vec_env.close()
+        except:
+            pass
+        try:
+            env.close()
+        except:
+            pass
         
         if rclpy.ok():
-            rclpy.shutdown()
+            try:
+                rclpy.shutdown()
+            except:
+                pass
         
-        print("✓ Cleanup complete")
+        print("✓ Cleanup complete - car should be stopped")
 
 
 if __name__ == '__main__':
