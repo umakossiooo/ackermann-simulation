@@ -207,6 +207,8 @@ class AckermannCityEnv(Node):
         
         self.battery.reset()
         self.prev_distance_to_goal = None
+        self.prev_position = None
+        self.prev_position_time = None
         self.episode_step_count = 0
         self.prev_velocity_for_efficiency = None
         self.battery_consumed_this_step = 0.0
