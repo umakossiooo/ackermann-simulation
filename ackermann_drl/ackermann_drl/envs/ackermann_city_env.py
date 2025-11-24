@@ -252,9 +252,14 @@ class AckermannCityEnv(Node):
             # Initialize prev_position for velocity calculation
             pos = self.latest_odom.pose.pose.position
             self.prev_position = np.array([pos.x, pos.y, pos.z])
-            # Use odometry timestamp for more accurate timing
+            # Use odometry timestamp for more accurate timing (with fallback)
             odom_stamp = self.latest_odom.header.stamp
-            self.prev_position_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+            odom_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+            wall_time = time.time()
+            if odom_time > 0 and abs(odom_time - wall_time) < 3600:
+                self.prev_position_time = odom_time
+            else:
+                self.prev_position_time = wall_time
         
         # Initialize current_step_velocity before get_observation() (will be 0.0 on reset)
         self.current_step_velocity = 0.0
@@ -317,9 +322,14 @@ class AckermannCityEnv(Node):
             
             # NOW update previous position for NEXT step's velocity calculation
             self.prev_position = position.copy()
-            # Use odometry timestamp for more accurate timing
+            # Use odometry timestamp for more accurate timing (with fallback)
             odom_stamp = self.latest_odom.header.stamp
-            self.prev_position_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+            odom_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+            wall_time = time.time()
+            if odom_time > 0 and abs(odom_time - wall_time) < 3600:
+                self.prev_position_time = odom_time
+            else:
+                self.prev_position_time = wall_time
             
             battery_before = self.battery.get_battery_level()
             self.battery.update(position, self.current_step_velocity, dt=0.1)
@@ -472,8 +482,17 @@ class AckermannCityEnv(Node):
             current_position = np.array([pos.x, pos.y, pos.z])
             
             # Use odometry header timestamp for more accurate dt (in seconds)
+            # Fallback to time.time() if timestamp seems invalid
             odom_stamp = self.latest_odom.header.stamp
-            current_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+            odom_time = odom_stamp.sec + odom_stamp.nanosec * 1e-9
+            wall_time = time.time()
+            
+            # Use odom timestamp if it's reasonable, otherwise use wall time
+            if odom_time > 0 and abs(odom_time - wall_time) < 3600:  # Within 1 hour
+                current_time = odom_time
+            else:
+                current_time = wall_time
+            
             dt = current_time - self.prev_position_time
             
             # Use a smaller threshold for dt (0.0001s = 0.1ms) to catch fast updates
@@ -483,16 +502,20 @@ class AckermannCityEnv(Node):
                 velocity_from_position = distance / dt
                 # Use position-based velocity (more accurate than twist)
                 velocity = velocity_from_position
-                # Always log for debugging (remove later if too verbose)
-                print(f"[VELOCITY DEBUG] dt={dt:.6f}s, distance={distance:.6f}m, velocity={velocity:.4f} m/s, twist={velocity_from_twist:.4f} m/s, prev_pos={self.prev_position}, curr_pos={current_position}")
+                # Always log for debugging - flush immediately
+                import sys
+                print(f"[VELOCITY DEBUG] dt={dt:.6f}s, distance={distance:.6f}m, velocity={velocity:.4f} m/s, twist={velocity_from_twist:.4f} m/s", flush=True)
+                print(f"[VELOCITY DEBUG] prev_pos=({self.prev_position[0]:.3f}, {self.prev_position[1]:.3f}, {self.prev_position[2]:.3f}), curr_pos=({current_position[0]:.3f}, {current_position[1]:.3f}, {current_position[2]:.3f})", flush=True)
             else:
                 # dt too small, use twist
                 velocity = velocity_from_twist
-                print(f"[VELOCITY DEBUG] dt too small ({dt:.6f}s), using twist: {velocity_from_twist:.4f} m/s")
+                import sys
+                print(f"[VELOCITY DEBUG] dt too small ({dt:.6f}s), using twist: {velocity_from_twist:.4f} m/s", flush=True)
         else:
             # No previous position, use twist
             velocity = velocity_from_twist
-            print(f"[VELOCITY DEBUG] No prev_position (prev={self.prev_position is not None}, time={self.prev_position_time is not None}), using twist: {velocity_from_twist:.4f} m/s")
+            import sys
+            print(f"[VELOCITY DEBUG] No prev_position (prev={self.prev_position is not None}, time={self.prev_position_time is not None}), using twist: {velocity_from_twist:.4f} m/s", flush=True)
         
         return (velocity, steering)
     
