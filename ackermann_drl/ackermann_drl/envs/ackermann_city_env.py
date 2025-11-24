@@ -456,8 +456,8 @@ class AckermannCityEnv(Node):
         velocity_from_twist = np.sqrt(twist.linear.x**2 + twist.linear.y**2 + twist.linear.z**2)
         steering = twist.angular.z
         
-        # If velocity from twist is 0 but we have previous position, calculate from position change
-        if velocity_from_twist < 0.01 and self.prev_position is not None and self.prev_position_time is not None:
+        # Always calculate velocity from position changes if we have previous position (more accurate)
+        if self.prev_position is not None and self.prev_position_time is not None:
             pos = self.latest_odom.pose.pose.position
             current_position = np.array([pos.x, pos.y, pos.z])
             current_time = time.time()
@@ -467,15 +467,13 @@ class AckermannCityEnv(Node):
                 position_change = current_position - self.prev_position
                 distance = np.linalg.norm(position_change)
                 velocity_from_position = distance / dt
-                # Always use position-based velocity if we have previous position (more accurate)
+                # Use position-based velocity (more accurate than twist)
                 velocity = velocity_from_position
-                # Debug: log if position changed significantly
-                if distance > 0.001:
-                    safe_log(self.get_logger().debug, 
-                        f"[VELOCITY] Calculated from position: {velocity:.3f} m/s (moved {distance:.3f}m in {dt:.3f}s)")
             else:
+                # dt too small, use twist
                 velocity = velocity_from_twist
         else:
+            # No previous position, use twist
             velocity = velocity_from_twist
         
         return (velocity, steering)
