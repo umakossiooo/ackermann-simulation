@@ -109,7 +109,7 @@ class AckermannCityEnv(Node):
         self.reward_time_penalty = -0.01
         self.goal_reached_threshold = 2.0
         self.collision_threshold = 1.5
-        self.offroad_collision_threshold = 1.0
+        self.offroad_collision_threshold = 0.5  # Lower threshold to detect sidewalk collisions
         
         self.prev_distance_to_goal: Optional[float] = None
         self.delivery_start_time: Optional[float] = None
@@ -721,9 +721,13 @@ class AckermannCityEnv(Node):
         
         if self.latest_odom is not None:
             road_distance = self.get_road_distance()
+            # Check for off-road collision (sidewalk, etc.) - more sensitive threshold
             if road_distance > self.offroad_collision_threshold:
                 is_colliding_offroad = True
                 safe_log(self.get_logger().warn, f"[COLLISION] Off-road collision detected! road_distance={road_distance:.3f}m > threshold={self.offroad_collision_threshold}m")
+            # Also check if road_distance is significant (car is off-road) even if below collision threshold
+            elif road_distance > 0.3:  # Car is noticeably off-road but not quite collision threshold
+                safe_log(self.get_logger().debug, f"[OFF-ROAD] Car is off-road: road_distance={road_distance:.3f}m (threshold={self.offroad_collision_threshold}m)")
         
         is_colliding = is_colliding_lidar or is_colliding_offroad
         
