@@ -248,6 +248,10 @@ class AckermannCityEnv(Node):
         if self.current_goal is not None and self.latest_odom is not None:
             dx, dy, _ = self.compute_goal_deltas()
             self.prev_distance_to_goal = np.sqrt(dx**2 + dy**2)
+            # Initialize prev_position for velocity calculation
+            pos = self.latest_odom.pose.pose.position
+            self.prev_position = np.array([pos.x, pos.y, pos.z])
+            self.prev_position_time = time.time()
         
         obs = self.get_observation()
         return obs
@@ -463,11 +467,12 @@ class AckermannCityEnv(Node):
                 position_change = current_position - self.prev_position
                 distance = np.linalg.norm(position_change)
                 velocity_from_position = distance / dt
-                # Use position-based velocity if it's more reasonable
-                if velocity_from_position > 0.01:
-                    velocity = velocity_from_position
-                else:
-                    velocity = velocity_from_twist
+                # Always use position-based velocity if we have previous position (more accurate)
+                velocity = velocity_from_position
+                # Debug: log if position changed significantly
+                if distance > 0.001:
+                    safe_log(self.get_logger().debug, 
+                        f"[VELOCITY] Calculated from position: {velocity:.3f} m/s (moved {distance:.3f}m in {dt:.3f}s)")
             else:
                 velocity = velocity_from_twist
         else:
