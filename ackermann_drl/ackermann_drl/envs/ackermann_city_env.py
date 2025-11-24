@@ -302,21 +302,23 @@ class AckermannCityEnv(Node):
         if self.odom_count == odom_count_before:
             safe_log(self.get_logger().warn, f"[SENSOR] No new odometry data received after {spin_iterations} spins (count={self.odom_count})")
         
+        # Calculate velocity BEFORE updating prev_position (so it uses previous step's position)
         if self.latest_odom is not None:
             pos = self.latest_odom.pose.pose.position
             position = np.array([pos.x, pos.y, pos.z])
-            # Get velocity (will calculate from position if twist is 0)
-            velocity, _ = self.get_velocity_and_steering()
+            # Get velocity BEFORE updating prev_position (uses previous step's position)
+            self.current_step_velocity, _ = self.get_velocity_and_steering()
             
-            # Update previous position for velocity calculation
+            # NOW update previous position for NEXT step's velocity calculation
             self.prev_position = position.copy()
             self.prev_position_time = time.time()
             
             battery_before = self.battery.get_battery_level()
-            self.battery.update(position, velocity, dt=0.1)
+            self.battery.update(position, self.current_step_velocity, dt=0.1)
             battery_after = self.battery.get_battery_level()
             self.battery_consumed_this_step = battery_before - battery_after
         else:
+            self.current_step_velocity = 0.0
             self.battery_consumed_this_step = 0.0
         
         self.episode_step_count += 1
@@ -690,7 +692,7 @@ class AckermannCityEnv(Node):
                 reward_info['reward_progress'] = progress_reward
                 # Debug: log if no progress despite movement
                 if abs(progress) < 0.01 and self.latest_odom is not None:
-                    velocity, _ = self.get_velocity_and_steering()
+                    velocity = self.current_step_velocity
                     if velocity > 0.1:  # Car is moving
                         safe_log(self.get_logger().debug, 
                             f"[PROGRESS] Car moving ({velocity:.2f} m/s) but no progress: prev={self.prev_distance_to_goal:.2f}m, curr={current_distance:.2f}m, diff={progress:.4f}m")
@@ -828,7 +830,9 @@ class AckermannCityEnv(Node):
             reward_info['reward_efficiency'] = 0.0
         
         if self.latest_odom is not None:
-            velocity, steering = self.get_velocity_and_steering()
+            # Use stored velocity (calculated before prev_position update)
+            velocity = self.current_step_velocity
+            _, steering = self.get_velocity_and_steering()  # Only need steering from twist
             
             if velocity > 3.0:
                 high_speed_penalty = -0.02 * (velocity - 3.0)
@@ -852,11 +856,10 @@ class AckermannCityEnv(Node):
         reward += self.reward_time_penalty
         reward_info['penalty_time'] = self.reward_time_penalty
         
-        # Get diagnostic info
-        velocity = -1.0
+        # Get diagnostic info (use stored velocity)
+        velocity = self.current_step_velocity
         distance_to_goal = -1.0
         if self.latest_odom is not None:
-            velocity, _ = self.get_velocity_and_steering()
             distance_to_goal = self.get_distance_to_goal()
         
         # Print formatted reward breakdown
