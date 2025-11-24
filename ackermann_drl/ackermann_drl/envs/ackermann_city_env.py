@@ -114,6 +114,7 @@ class AckermannCityEnv(Node):
         self.prev_distance_to_goal: Optional[float] = None
         self.prev_position: Optional[np.ndarray] = None
         self.prev_position_time: Optional[float] = None
+        self.current_step_velocity: float = 0.0  # Store velocity for this step
         self.delivery_start_time: Optional[float] = None
         self.delivery_deadline: Optional[float] = None
         self.delivery_elapsed_time: float = 0.0
@@ -252,6 +253,9 @@ class AckermannCityEnv(Node):
             pos = self.latest_odom.pose.pose.position
             self.prev_position = np.array([pos.x, pos.y, pos.z])
             self.prev_position_time = time.time()
+        
+        # Initialize current_step_velocity before get_observation() (will be 0.0 on reset)
+        self.current_step_velocity = 0.0
         
         obs = self.get_observation()
         return obs
