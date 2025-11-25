@@ -64,14 +64,14 @@ class AckermannCityEnv(Node):
             LaserScan,
             '/scan',
             self._scan_callback,
-            100  # Increased queue size to ensure we don't drop messages
+            100
         )
         
         self.odom_sub = self.create_subscription(
             Odometry,
             '/odom',
             self._odom_callback,
-            100  # Increased queue size to ensure we don't drop messages
+            100
         )
         
         self.cmd_vel_pub = self.create_publisher(
@@ -275,7 +275,7 @@ class AckermannCityEnv(Node):
         self.prev_position = None
         self.prev_position_time = None
         self.episode_step_count = 0
-        self.episode_cumulative_reward = 0.0  # Reset cumulative reward for new episode
+        self.episode_cumulative_reward = 0.0
         self.prev_velocity_for_efficiency = None
         self.battery_consumed_this_step = 0.0
 
