@@ -150,12 +150,12 @@ class AckermannCityEnv(Node):
         self.reward_time_penalty = -0.01
         self.goal_reached_threshold = 2.0
         self.collision_threshold = 1.5
-        self.offroad_collision_threshold = 0.5  # Lower threshold to detect sidewalk collisions
+        self.offroad_collision_threshold = 0.5
         
         self.prev_distance_to_goal: Optional[float] = None
         self.prev_position: Optional[np.ndarray] = None
         self.prev_position_time: Optional[float] = None
-        self.current_step_velocity: float = 0.0  # Store velocity for this step
+        self.current_step_velocity: float = 0.0
         self.delivery_start_time: Optional[float] = None
         self.delivery_deadline: Optional[float] = None
         self.delivery_elapsed_time: float = 0.0
@@ -166,12 +166,13 @@ class AckermannCityEnv(Node):
         self.step_count = 0
         self.episode_count = 0
         self.episode_step_count = 0
-        self.episode_cumulative_reward = 0.0  # Track cumulative reward for current episode
-        self.training_cumulative_reward = 0.0  # Track cumulative reward across entire training run
+        self.episode_cumulative_reward = 0.0  # current episode
+        self.training_cumulative_reward = 0.0  # entire training run
         self.prev_velocity_for_efficiency = None
         self.battery_consumed_this_step = 0.0
 
         self.cumulative_reward_components = self._init_reward_component_totals()
+
     def _init_reward_component_totals(self) -> Dict[str, float]:
         return {
             'reward_progress': 0.0,
