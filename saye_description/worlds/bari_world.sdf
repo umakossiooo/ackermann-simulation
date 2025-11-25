@@ -1,14 +1,14 @@
 <?xml version="1.0" ?>
 <sdf version="1.11">
   <world name="bari_world">
-    <gravity>0 0 -9.81</gravity>
     <physics type="ode" name="default">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
+      <gravity>0 0 -9.81</gravity>
     </physics>
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
-      <render_engine>ogre2</render_engine>
+      <render_engine>vulkan</render_engine>
     </plugin>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
@@ -18,18 +18,46 @@
       <background>0.7 0.7 0.7 1</background>
       <shadows>true</shadows>
     </scene>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>2000 2000</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>2000 2000</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.85 0.85 0.85 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+            <specular>0.5 0.5 0.5 1</specular>
+          </material>
+        </visual>
+      </link>
+      <pose>0 0 -1.0 0 0 0</pose>
+    </model>
     <include>
       <name>bari_3d</name>
       <uri>model://bari_3d</uri>
       <pose>0 0 0 1.5708 0 0</pose>
     </include>
     <gui fullscreen="0">
-      <camera name="user_camera">
-        <pose>164.37 0.21 3.35 0 0.4 0.0796</pose>
+      <camera name="follow_camera">
+        <pose>-8 0 4 0.4 0.6 0</pose>
         <view_controller>orbit</view_controller>
+        <track_visual>saye::base_link::BaseVisual</track_visual>
       </camera>
       <camera name="default">
-        <pose>164.37 0.21 3.35 0 0.4 0.0796</pose>
+        <pose>0 0 50 0 -1.57 0</pose>
         <view_controller>orbit</view_controller>
       </camera>
     </gui>
