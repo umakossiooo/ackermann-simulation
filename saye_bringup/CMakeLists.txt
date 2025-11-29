@@ -11,6 +11,7 @@ install(
     maps
     rviz
     config
+    behavior_trees
   DESTINATION share/${PROJECT_NAME}/
 )
 
