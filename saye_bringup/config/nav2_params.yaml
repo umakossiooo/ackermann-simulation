@@ -43,10 +43,10 @@ amcl:
     always_reset_initial_pose: false  
     first_map_only: false
     initial_pose:
-      x: 0.0
-      y: 0.0
+      x: 169.37
+      y: 0.21
       z: 0.0
-      yaw: 0.0
+      yaw: 0.0796
 
 bt_navigator:
   ros__parameters:

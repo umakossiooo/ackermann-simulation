@@ -39,3 +39,11 @@ amcl:
     z_short: 0.05
     scan_topic: scan
     map_topic: map
+    set_initial_pose: true
+    always_reset_initial_pose: false
+    first_map_only: false
+    initial_pose:
+      x: 169.37
+      y: 0.21
+      z: 0.0
+      yaw: 0.0796
