@@ -147,6 +147,7 @@ ros2 run nav2_map_server map_saver_cli \
   source /root/colcon_ws/install/setup.bash
   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
   export ROS_DISABLE_SHARED_MEMORY=1
+  source /root/colcon_ws/install/setup.bash
   ```
 - Use the same launch/teleop/SLAM/Nav2 commands as in the local section (paths already set inside the container).
 
