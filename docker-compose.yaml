@@ -20,12 +20,7 @@ x-shared-volumes: &shared_volumes
   - /tmp/.X11-unix:/tmp/.X11-unix:rw
   - /run/user:/run/user:ro
   - /home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2:/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2
-  # Mount osm_city_pipeline subdirectories (excluding saye_description to avoid duplicate)
-  - /home/studente/ackermann_sim/src/osm_city_pipeline/maps:/root/colcon_ws/src/osm_city_pipeline/maps:ro
-  - /home/studente/ackermann_sim/src/osm_city_pipeline/models:/root/colcon_ws/src/osm_city_pipeline/models:ro
-  - /home/studente/ackermann_sim/src/osm_city_pipeline/worlds:/root/colcon_ws/src/osm_city_pipeline/worlds:ro
-  - /home/studente/ackermann_sim/src/osm_city_pipeline/scripts:/root/colcon_ws/src/osm_city_pipeline/scripts:ro
-  - /home/studente/ackermann_sim/src/osm_city_pipeline/src:/root/colcon_ws/src/osm_city_pipeline/src:ro
+  - /home/studente/ackermann_sim/src/map2gazebo:/root/colcon_ws/src/map2gazebo
 
 services:
   ackermann_sim:
@@ -45,4 +40,3 @@ services:
     volumes: *shared_volumes
     ports:
       - "6006:6006"  # TensorBoard port
-
