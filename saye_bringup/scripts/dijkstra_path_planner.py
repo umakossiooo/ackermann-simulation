@@ -11,6 +11,8 @@ import rclpy
 from rclpy.node import Node
 import math
 import json
+import time
+import subprocess
 import numpy as np
 from pathlib import Path
 from collections import defaultdict
@@ -30,6 +32,13 @@ class SimpleDijkstraPlanner:
     
     Ensures all paths stay within road meshes by validating waypoints against road polygons.
     """
+    
+    @staticmethod
+    def _euclidean_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
+        """Calculate Euclidean distance between two points."""
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        return math.sqrt(dx * dx + dy * dy)
     
     def __init__(self, edges_file: str, map_file: str, polygons_file: Optional[str] = None):
         """Initialize planner by reading map2gazebo files directly.
@@ -151,14 +160,8 @@ class SimpleDijkstraPlanner:
                 p1 = points[i]
                 p2 = points[i + 1]
                 
-                # Validate both points are in roads
-                if not self.is_point_in_road(p1[0], p1[1]) or not self.is_point_in_road(p2[0], p2[1]):
-                    continue
-                
-                # Calculate distance
-                dx = p2[0] - p1[0]
-                dy = p2[1] - p1[1]
-                distance = math.sqrt(dx * dx + dy * dy)
+                # Calculate distance (points already validated when added to list)
+                distance = self._euclidean_distance(p1, p2)
                 
                 # Add intermediate nodes if edge is long (for better path resolution)
                 if distance > 5.0:  # If edge is longer than 5m, add intermediate node
@@ -198,11 +201,10 @@ class SimpleDijkstraPlanner:
         
         min_dist = float('inf')
         nearest = None
+        point = (x, y)
         
         for node in self.node_coords:
-            dx = node[0] - x
-            dy = node[1] - y
-            dist = math.sqrt(dx * dx + dy * dy)
+            dist = self._euclidean_distance(point, node)
             if dist < min_dist:
                 min_dist = dist
                 nearest = node
@@ -299,7 +301,7 @@ class SimpleDijkstraPlanner:
             p1 = path[i]
             p2 = path[i + 1]
             
-            # Calculate distance
+            # Calculate distance and direction vector
             dx = p2[0] - p1[0]
             dy = p2[1] - p1[1]
             distance = math.sqrt(dx * dx + dy * dy)
@@ -307,7 +309,6 @@ class SimpleDijkstraPlanner:
             # If segment is too long, add intermediate points
             if distance > max_segment_length:
                 num_segments = int(math.ceil(distance / max_segment_length))
-                segment_length = distance / num_segments
                 
                 for j in range(1, num_segments + 1):
                     t = j / num_segments
@@ -321,14 +322,20 @@ class SimpleDijkstraPlanner:
         return interpolated
     
     def dijkstra(self, start: Tuple[float, float], goal: Tuple[float, float]) -> Optional[List[Tuple[float, float]]]:
-        """Compute shortest path using Dijkstra - all waypoints are on roads."""
+        """Compute shortest path using Dijkstra's algorithm.
+        
+        All waypoints in the returned path are guaranteed to be on roads.
+        
+        Args:
+            start: Start position (x, y) in ENU coordinates
+            goal: Goal position (x, y) in ENU coordinates
+            
+        Returns:
+            List of waypoints forming the shortest path, or None if no path exists
+        """
         # Find nearest road nodes
         start_node, start_dist = self._find_nearest_node(start[0], start[1])
         goal_node, goal_dist = self._find_nearest_node(goal[0], goal[1])
-        
-        # Debug: log node distances
-        import math
-        node_dist = math.sqrt((goal_node[0] - start_node[0])**2 + (goal_node[1] - start_node[1])**2)
         
         # If start and goal are the same node, return path with start position
         if start_node == goal_node:
@@ -509,11 +516,10 @@ class DijkstraPathPlannerNode(Node):
         self.path_following = True
         
         # Calculate path length
-        path_length = 0.0
-        for i in range(len(path) - 1):
-            dx = path[i+1][0] - path[i][0]
-            dy = path[i+1][1] - path[i][1]
-            path_length += math.sqrt(dx*dx + dy*dy)
+        path_length = sum(
+            SimpleDijkstraPlanner._euclidean_distance(path[i], path[i+1])
+            for i in range(len(path) - 1)
+        )
         
         self.get_logger().info(f"Path found! Length: {path_length:.2f}m, Waypoints: {len(path)}")
         return True
@@ -525,9 +531,7 @@ class DijkstraPathPlannerNode(Node):
         
         # Check if we've passed the current waypoint or are close to it
         waypoint = self.path[self.current_waypoint_idx]
-        dx = waypoint[0] - current_x
-        dy = waypoint[1] - current_y
-        distance = math.sqrt(dx * dx + dy * dy)
+        distance = SimpleDijkstraPlanner._euclidean_distance((current_x, current_y), waypoint)
         
         # Also check if we're past the waypoint (projected along path direction)
         if self.current_waypoint_idx < len(self.path) - 1:
@@ -562,18 +566,10 @@ class DijkstraPathPlannerNode(Node):
     
     def compute_control(self, current_x, current_y, current_yaw, target_x, target_y):
         """Compute velocity and steering commands."""
-        dx = target_x - current_x
-        dy = target_y - current_y
-        distance = math.sqrt(dx * dx + dy * dy)
+        distance = SimpleDijkstraPlanner._euclidean_distance((current_x, current_y), (target_x, target_y))
         
-        desired_yaw = math.atan2(dy, dx)
-        yaw_error = desired_yaw - current_yaw
-        
-        # Normalize yaw error to [-pi, pi]
-        while yaw_error > math.pi:
-            yaw_error -= 2 * math.pi
-        while yaw_error < -math.pi:
-            yaw_error += 2 * math.pi
+        desired_yaw = math.atan2(target_y - current_y, target_x - current_x)
+        yaw_error = self._normalize_angle(desired_yaw - current_yaw)
         
         # Velocity: reduce as approaching waypoint
         if distance < 2.0:
@@ -597,6 +593,33 @@ class DijkstraPathPlannerNode(Node):
         """Stop the vehicle."""
         cmd = Twist()
         self.cmd_vel_pub.publish(cmd)
+    
+    @staticmethod
+    def _normalize_angle(angle: float) -> float:
+        """Normalize angle to [-pi, pi] range."""
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
+    
+    def _compute_road_correction(self, current_x: float, current_y: float, current_yaw: float) -> Tuple[float, Tuple[float, float]]:
+        """Compute road correction yaw error and road point.
+        
+        Args:
+            current_x: Current east coordinate
+            current_y: Current north coordinate
+            current_yaw: Current yaw angle
+            
+        Returns:
+            Tuple of (road_yaw_error, road_point) for correction
+        """
+        road_point = self.planner.project_to_road(current_x, current_y)
+        road_dx = road_point[0] - current_x
+        road_dy = road_point[1] - current_y
+        road_heading = math.atan2(road_dy, road_dx)
+        road_yaw_error = self._normalize_angle(road_heading - current_yaw)
+        return road_yaw_error, road_point
     
     def _get_lookahead_point(self, current_x: float, current_y: float, lookahead_dist: float) -> Optional[Tuple[float, float]]:
         """Get lookahead point along the path at specified distance ahead from current position.
@@ -701,20 +724,11 @@ class DijkstraPathPlannerNode(Node):
     
     def control_loop(self):
         """Main control loop - runs at 10 Hz. Ensures car stays on roads."""
-        if not self.path_following:
-            return
-        
-        if self.goal_reached:
+        if not self.path_following or self.goal_reached:
             return
         
         current_x, current_y, current_yaw = self.get_current_position()
-        if current_x is None:
-            return
-        
-        if self.path is None:
-            return
-        
-        if self.current_waypoint_idx >= len(self.path):
+        if current_x is None or self.path is None or self.current_waypoint_idx >= len(self.path):
             return
         
         # Check if car is too far from road (every N cycles for performance)
@@ -758,16 +772,7 @@ class DijkstraPathPlannerNode(Node):
         # If significantly off-road (>1.5m), prioritize getting back to road
         if road_distance > 1.5:
             # Get nearest road point and steer directly toward it
-            road_point = self.planner.project_to_road(current_x, current_y)
-            road_dx = road_point[0] - current_x
-            road_dy = road_point[1] - current_y
-            road_heading = math.atan2(road_dy, road_dx)
-            road_yaw_error = road_heading - current_yaw
-            # Normalize
-            while road_yaw_error > math.pi:
-                road_yaw_error -= 2 * math.pi
-            while road_yaw_error < -math.pi:
-                road_yaw_error += 2 * math.pi
+            road_yaw_error, _ = self._compute_road_correction(current_x, current_y, current_yaw)
             
             # Strong correction steering toward road
             correction_gain = 3.0
@@ -778,16 +783,7 @@ class DijkstraPathPlannerNode(Node):
             velocity = self.min_velocity * 1.2  # Slightly faster to get back on road
         elif road_distance > 0.8:
             # Slightly off-road - blend road correction with path following
-            road_point = self.planner.project_to_road(current_x, current_y)
-            road_dx = road_point[0] - current_x
-            road_dy = road_point[1] - current_y
-            road_heading = math.atan2(road_dy, road_dx)
-            road_yaw_error = road_heading - current_yaw
-            # Normalize
-            while road_yaw_error > math.pi:
-                road_yaw_error -= 2 * math.pi
-            while road_yaw_error < -math.pi:
-                road_yaw_error += 2 * math.pi
+            road_yaw_error, _ = self._compute_road_correction(current_x, current_y, current_yaw)
             
             # Normal path following
             velocity, path_steering = self.compute_control(current_x, current_y, current_yaw, target[0], target[1])
@@ -843,7 +839,6 @@ if __name__ == "__main__":
     start_time = node.get_clock().now()
     
     # Give subscription time to establish connection
-    import time
     time.sleep(0.5)
     
     while current_pose is None and rclpy.ok():
@@ -851,7 +846,6 @@ if __name__ == "__main__":
         if elapsed > max_wait_time:
             node.get_logger().error("Timeout waiting for odometry! Check if Gazebo is running.")
             # Check if topic exists
-            import subprocess
             result = subprocess.run(['ros2', 'topic', 'list'], capture_output=True, text=True, timeout=2)
             if '/odom' in result.stdout:
                 node.get_logger().error("Topic /odom exists but no messages received. Check if vehicle is spawned.")
@@ -877,12 +871,12 @@ if __name__ == "__main__":
     start_y = current_pose.pose.pose.position.y
     
     # Goal positions tested (similar to rrt_ob.py)
-    # goal = (10.0, -100.0)  # Example goal 1 (too close)
+    goal = (10.0, -100.0)  # Example goal 1 (too close)
     # goal = (50.0, -120.0)  # Example goal 2
     # goal = (100.0, -150.0)  # Example goal 3
     # goal = (5.0, -90.0)  # Example goal 4
     # goal = (50.0, -120.0)  # Active goal (further away for testing)
-    goal = (-200.0, -400.0)
+    # goal = (-200.0, -400.0)
     
     goal_x, goal_y = goal
     
@@ -905,11 +899,10 @@ if __name__ == "__main__":
             node.get_logger().info(f"Path: {path[:5]}... (showing first 5 waypoints)")
         
         # Calculate and log path length
-        path_length = 0.0
-        for i in range(len(path) - 1):
-            dx = path[i+1][0] - path[i][0]
-            dy = path[i+1][1] - path[i][1]
-            path_length += math.sqrt(dx*dx + dy*dy)
+        path_length = sum(
+            SimpleDijkstraPlanner._euclidean_distance(path[i], path[i+1])
+            for i in range(len(path) - 1)
+        )
         node.get_logger().info(f"Total path length: {path_length:.2f}m")
     
     # Start following path
