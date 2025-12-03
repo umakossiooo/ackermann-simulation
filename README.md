@@ -2,7 +2,7 @@
 
 Minimal ROS 2/Gazebo Harmonic setup for an Ackermann car with IMU, LiDAR, cameras, SLAM, and Nav2 already wired together.
 
-**Default map:** The Bari world (`saye_description/worlds/bari_world.sdf`) and its 2D Nav2 map (`saye_bringup/maps/bari_map.yaml`) load by default. The vehicle now spawns on Via Andrea da Bari (city center), using coordinates exported by `osm_city_pipeline`. Override `map:=...` or the `robot_*` launch arguments only if you need a different location.
+**Default map:** The Bari world (`saye_description/worlds/bari_world.sdf`) and its 2D Nav2 map (`saye_bringup/maps/bari_map.yaml`) load by default. The vehicle now spawns on Via Andrea da Bari (city center), using coordinates from the map. Override `map:=...` or the `robot_*` launch arguments only if you need a different location.
 
 ## Requirements
 - ROS 2 Jazzy (or Humble) with Nav2, RViz2, and `ros-gz`
@@ -24,10 +24,11 @@ Minimal ROS 2/Gazebo Harmonic setup for an Ackermann car with IMU, LiDAR, camera
   ```bash
   colcon build && source install/setup.bash
   ```
-- Make sure Gazebo can find the Bari models (run per shell or add to `.bashrc`):
+- The launch file now appends `saye_description/worlds/models` to
+  `GZ_SIM_RESOURCE_PATH` automatically so the Bari roads mesh loads. If you run
+  `gz sim` manually outside the launch system, export the same path yourself:
   ```bash
-  export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/
-  export ROS_PACKAGE_PATH=$ROS_PACKAGE_PATH:~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/
+  export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:~/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/saye_description/worlds/models
   ```
 
 ## Run Locally (Bari by default)
@@ -37,6 +38,9 @@ Start Gazebo Harmonic in the Bari world with the default ROS 2 bridges.
 ```bash
 ros2 launch saye_bringup saye_spawn.launch.py gui:=true
 ```
+> Tip: Regenerate the world via `map2gazebo/scripts/build_sdf_roads_individual.py`
+> before launching to pull the latest OSM roads directly into
+> `saye_description/worlds/bari_world.sdf`.
 
 ### Navigation (Nav2 + AMCL on Bari map)
 Bring up Nav2 + AMCL against the saved Bari occupancy grid.
@@ -150,28 +154,3 @@ ros2 run nav2_map_server map_saver_cli \
   source /root/colcon_ws/install/setup.bash
   ```
 - Use the same launch/teleop/SLAM/Nav2 commands as in the local section (paths already set inside the container).
-
-## Updating the Bari World with `osm_city_pipeline`
-
-This stack now relies exclusively on the meshes committed under `saye_description`.
-To refresh the city model:
-
-1. `cd ~/ackermann_sim/src/osm_city_pipeline` and run
-   `./scripts/osm-city reset --osm-file maps/bari.osm` followed by
-   `./scripts/generate_enhanced_world.sh maps/bari.osm`. The script copies the
-   new `bari_world.sdf` and `models/bari_3d/` directly into
-   `../ackermann-vehicle-gzsim-ros2/saye_description/`.
-2. Rebuild inside the Ackermann container:
-   ```bash
-   docker compose exec ackermann_sim bash -lc '
-     source /opt/ros/jazzy/setup.bash &&
-     cd /root/colcon_ws &&
-     colcon build --symlink-install
-   '
-   ```
-3. Relaunch `ros2 launch saye_bringup saye_spawn.launch.py gui:=true` (or run
-   `gz sim /root/colcon_ws/install/saye_description/share/saye_description/worlds/bari_world.sdf`
-   to preview).
-
-No dependency on `map_osm_converter` remains; all assets come straight from the
-pipeline.
