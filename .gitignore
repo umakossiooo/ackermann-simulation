@@ -8,3 +8,4 @@ __pycache__/
 # DRL training artifacts
 ackermann_drl/checkpoints/
 ackermann_drl/logs/
+saye_description/worlds/models/
