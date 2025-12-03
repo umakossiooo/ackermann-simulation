@@ -5,10 +5,10 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
-from launch.actions import TimerAction, ExecuteProcess
+from launch.actions import TimerAction, ExecuteProcess, SetEnvironmentVariable
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, EnvironmentVariable, TextSubstitution
 
 from launch_ros.actions import Node
 
@@ -19,7 +19,17 @@ def generate_launch_description():
     pkg_project_localization = get_package_share_directory('saye_localization')
     pkg_project_description = get_package_share_directory('saye_description')
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
-    
+
+    resources_path = PathJoinSubstitution([pkg_project_description, 'worlds', 'models'])
+    set_gz_resource_path = SetEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        value=[
+            resources_path,
+            TextSubstitution(text=':'),
+            EnvironmentVariable('GZ_SIM_RESOURCE_PATH', default_value='')
+        ]
+    )
+
 
     # Path to the SDF file in the description package
     sdf_file  =  os.path.join(pkg_project_description, 'models', 'saye', 'model.sdf')
@@ -55,10 +65,7 @@ def generate_launch_description():
     # Robot initial pose (map frame). Override at launch time as needed.
     # Default spawn position is on a street in the city center.
     # Current default: Via Dante Alighieri (spawn_point_173) - tertiary road near city center
-    # Coordinates exported by osm_city_pipeline from maps/bari_spawn_points.yaml
-    # To find other spawn points, run:
-    #   cd osm_city_pipeline && python3 scripts/find_central_street_near_buildings.py maps/bari_spawn_points.yaml 5
-    # Or check spawn points: python3 scripts/osm-city spawn-pose --spawn-file maps/bari_spawn_points.yaml --id <ID>
+    # Coordinates are based on the map from map2gazebo.
     # To override spawn position at launch: robot_x:=<x> robot_y:=<y> robot_Y:=<yaw>
     robot_x_arg = DeclareLaunchArgument('robot_x', default_value='169.37', description='Robot X in meters (east coordinate)')
     robot_y_arg = DeclareLaunchArgument('robot_y', default_value='0.21', description='Robot Y in meters (north coordinate)')
@@ -166,6 +173,7 @@ def generate_launch_description():
         world_arg,
         gz_args_arg,
         gui_arg,
+        set_gz_resource_path,
         robot_x_arg,
         robot_y_arg,
         robot_z_arg,
