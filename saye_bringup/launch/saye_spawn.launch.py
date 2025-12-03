@@ -63,16 +63,15 @@ def generate_launch_description():
     )
 
     # Robot initial pose (map frame). Override at launch time as needed.
-    # Default spawn position is on a street in the city center.
-    # Current default: Via Dante Alighieri (spawn_point_173) - tertiary road near city center
-    # Coordinates are based on the map from map2gazebo.
+    # Default spawn position is on a road, calculated from map2gazebo road geometry.
+    # Coordinates are verified to be on a road (distance to road = 0.0m).
     # To override spawn position at launch: robot_x:=<x> robot_y:=<y> robot_Y:=<yaw>
-    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='169.37', description='Robot X in meters (east coordinate)')
-    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='0.21', description='Robot Y in meters (north coordinate)')
+    robot_x_arg = DeclareLaunchArgument('robot_x', default_value='5.55', description='Robot X in meters (east coordinate)')
+    robot_y_arg = DeclareLaunchArgument('robot_y', default_value='-94.69', description='Robot Y in meters (north coordinate)')
     robot_z_arg = DeclareLaunchArgument('robot_z', default_value='0.35', description='Robot Z in meters (height above ground)')
     robot_R_arg = DeclareLaunchArgument('robot_R', default_value='0.0', description='Robot roll in radians')
     robot_P_arg = DeclareLaunchArgument('robot_P', default_value='0.0', description='Robot pitch in radians')
-    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='0.0796', description='Robot yaw in radians (orientation)')
+    robot_Y_arg = DeclareLaunchArgument('robot_Y', default_value='-1.5064', description='Robot yaw in radians (orientation, aligned with road, rotated 180°)')
 
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -148,9 +147,9 @@ def generate_launch_description():
 
     # Set camera pose using gz service after Gazebo initializes
     # Calculate camera position based on robot spawn: 5m behind, 3m above (closer view)
-    # Robot: x=169.37, y=0.21, z=0.35 -> Camera: x=164.37, y=0.21, z=3.35
-    # Orientation: looking at back of car (pitch down 0.4 rad, yaw 0.0796 rad to face car's back)
-    # Quaternion for roll=0, pitch=0.4, yaw=0.0796: (x=0.0, y=0.1987, z=0.0398, w=0.9794)
+    # Robot: x=5.55, y=-94.69, z=0.35 -> Camera: x=5.23, y=-89.70, z=3.35
+    # Orientation: looking at back of car (pitch down 0.4 rad, yaw -1.5064 rad to face car's back)
+    # Quaternion for roll=0, pitch=0.4, yaw=-1.5064: (x=0.1359, y=0.1449, z=-0.6703, w=0.7150)
     delayed_camera_setup = TimerAction(
         period=4.0,  # Wait 4 seconds for Gazebo and robot to spawn
         actions=[
@@ -161,7 +160,7 @@ def generate_launch_description():
                     '--reqtype', 'gz.msgs.GUICamera',
                     '--reptype', 'gz.msgs.Boolean',
                     '--timeout', '2000',
-                    '--req', 'pose: {position: {x: 164.37, y: 0.21, z: 3.35}, orientation: {x: 0.0, y: 0.1987, z: 0.0398, w: 0.9794}}'
+                    '--req', 'pose: {position: {x: 5.23, y: -89.70, z: 3.35}, orientation: {x: 0.1359, y: 0.1449, z: -0.6703, w: 0.7150}}'
                 ],
                 output='screen',
                 condition=IfCondition(LaunchConfiguration('gui'))
