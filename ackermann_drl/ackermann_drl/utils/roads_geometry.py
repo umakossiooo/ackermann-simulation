@@ -1,10 +1,11 @@
 """Road geometry utilities for navigation and path planning.
 
 MUST RUN INSIDE DOCKER CONTAINER.
-Loads real street coordinates from osm_city_pipeline (mounted volume).
+Loads real street coordinates from map2gazebo (mounted volume).
 """
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
@@ -20,53 +21,64 @@ class RoadsGeometry:
     Designed to work inside Docker container with mounted volumes.
     """
     
-    def __init__(self, roads_file: Optional[str] = None):
-        """Initialize roads geometry from JSON file.
+    def __init__(self, edges_file: Optional[str] = None, map_file: Optional[str] = None):
+        """Initialize roads geometry from map2gazebo JSON files.
         
         Args:
-            roads_file: Path to bari_roads.json file. If None, uses default.
-                       Tries multiple paths to find the file inside Docker container.
+            edges_file: Path to edges.json file. If None, uses default.
+            map_file: Path to map.json file. If None, uses default.
+                     Tries multiple paths to find the files inside Docker container.
         """
-        if roads_file is None:
-            roads_file = self._find_roads_file()
+        if edges_file is None:
+            edges_file = self._find_map2gazebo_file('edges.json')
+        if map_file is None:
+            map_file = self._find_map2gazebo_file('map.json')
         
-        self.roads_file = Path(roads_file)
-        self.roads_data: Dict = {}
+        self.edges_file = Path(edges_file)
+        self.map_file = Path(map_file)
+        self.edges_data: Dict = {}
+        self.nodes_data: Dict = {}
         self.roads_polylines: List[LineString] = []
         self.roads_metadata: List[Dict] = []
         self._load_roads()
         self._build_polylines()
     
-    def _find_roads_file(self) -> str:
-        """Find bari_roads.json file in Docker container.
+    def _find_map2gazebo_file(self, filename: str) -> str:
+        """Find map2gazebo file (edges.json or map.json) in Docker container.
         
         Tries multiple paths:
-        1. Relative to package (if osm_city_pipeline is mounted)
+        1. Relative to package (if map2gazebo is mounted)
         2. Absolute path from workspace root
         3. Environment variable override
         
+        Args:
+            filename: Name of the file to find (e.g., 'edges.json', 'map.json')
+        
         Returns:
-            Path to roads file
+            Path to the file
             
         Raises:
             FileNotFoundError: If file cannot be found
         """
         # Try environment variable first
-        env_path = os.getenv('BARI_ROADS_JSON')
+        env_var = f'MAP2GAZEBO_{filename.upper().replace(".", "_")}'
+        env_path = os.getenv(env_var)
         if env_path and Path(env_path).exists():
             return env_path
         
         # Try relative to package (workspace structure)
         package_path = Path(__file__).parent.parent.parent
         candidate_paths = [
-            # Path 1: osm_city_pipeline sibling to ackermann-vehicle-gzsim-ros2
-            package_path.parent / 'osm_city_pipeline' / 'maps' / 'bari_roads.json',
-            # Path 2: Direct from workspace root
-            Path('/root/colcon_ws/src/osm_city_pipeline/maps/bari_roads.json'),
-            # Path 3: From workspace root relative
-            package_path.parent.parent / 'osm_city_pipeline' / 'maps' / 'bari_roads.json',
-            # Path 4: Absolute host path (if mounted)
-            Path('/home/studente/ackermann_sim/src/osm_city_pipeline/maps/bari_roads.json'),
+            # Path 1: Mounted maps folder inside ackermann-vehicle-gzsim-ros2 (preferred)
+            package_path.parent / 'map2gazebo_maps' / filename,
+            # Path 2: Direct from workspace root (absolute path)
+            Path(f'/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/map2gazebo_maps/{filename}'),
+            # Path 3: map2gazebo sibling to ackermann-vehicle-gzsim-ros2 (fallback)
+            package_path.parent / 'map2gazebo' / 'maps' / filename,
+            # Path 4: Direct from workspace root (old location, fallback)
+            Path(f'/root/colcon_ws/src/map2gazebo/maps/{filename}'),
+            # Path 5: Absolute host path (if mounted differently)
+            Path(f'/home/studente/ackermann_sim/src/map2gazebo/maps/{filename}'),
         ]
         
         for candidate in candidate_paths:
@@ -75,44 +87,61 @@ class RoadsGeometry:
         
         # If not found, raise error with helpful message
         raise FileNotFoundError(
-            f"bari_roads.json not found. Tried paths:\n" +
+            f"{filename} not found. Tried paths:\n" +
             "\n".join(f"  - {p}" for p in candidate_paths) +
-            "\n\nEnsure osm_city_pipeline is mounted or set BARI_ROADS_JSON environment variable."
+            f"\n\nEnsure map2gazebo is mounted or set {env_var} environment variable."
         )
     
     def _load_roads(self):
-        """Load road data from JSON file."""
-        if not self.roads_file.exists():
-            raise FileNotFoundError(f"Roads file not found: {self.roads_file}")
+        """Load road data from map2gazebo JSON files (edges.json and map.json)."""
+        if not self.edges_file.exists():
+            raise FileNotFoundError(f"Edges file not found: {self.edges_file}")
+        if not self.map_file.exists():
+            raise FileNotFoundError(f"Map file not found: {self.map_file}")
         
-        with open(self.roads_file, 'r') as f:
-            self.roads_data = json.load(f)
+        with open(self.edges_file, 'r') as f:
+            self.edges_data = json.load(f)
+        
+        with open(self.map_file, 'r') as f:
+            map_data = json.load(f)
+            self.nodes_data = map_data.get('nodes_enu', {})
     
     def _build_polylines(self):
         """Build Shapely LineString polylines from road centerlines.
         
         Creates a list of LineString objects for efficient distance calculations.
+        Uses map2gazebo format: centerline_nodes (node IDs) looked up in nodes_enu.
         """
         self.roads_polylines = []
         self.roads_metadata = []
         
-        for road in self.roads_data.get('roads', []):
-            centerline_enu = road.get('centerline_enu', [])
-            if len(centerline_enu) < 2:
-                continue  # Skip roads with insufficient points
+        for way_id, edge_data in self.edges_data.items():
+            centerline_nodes = edge_data.get('centerline_nodes', [])
+            if len(centerline_nodes) < 2:
+                continue  # Skip edges with insufficient nodes
             
-            # Extract (east, north) coordinates (ignore up/z for 2D distance)
-            points = [(pt['east'], pt['north']) for pt in centerline_enu]
+            # Look up coordinates for each node ID
+            points = []
+            for node_id in centerline_nodes:
+                node_id_str = str(node_id)
+                if node_id_str in self.nodes_data:
+                    coords = self.nodes_data[node_id_str]
+                    if len(coords) >= 2:
+                        # coords is [east, north] or [east, north, up]
+                        points.append((coords[0], coords[1]))
+            
+            if len(points) < 2:
+                continue  # Skip if we couldn't resolve enough points
             
             # Create LineString polyline
             try:
                 polyline = LineString(points)
                 self.roads_polylines.append(polyline)
                 self.roads_metadata.append({
-                    'way_id': road.get('way_id'),
-                    'name': road.get('name', ''),
-                    'highway_type': road.get('highway_type', ''),
-                    'lanes': road.get('lanes', 1),
+                    'way_id': way_id,
+                    'name': edge_data.get('name', ''),
+                    'highway_type': edge_data.get('highway_type', ''),
+                    'width': edge_data.get('width', 0.0),
                     'polyline': polyline
                 })
             except Exception as e:
@@ -128,9 +157,11 @@ class RoadsGeometry:
         Returns:
             Road dictionary or None if not found
         """
-        for road in self.roads_data.get('roads', []):
-            if road.get('name') == name:
-                return road
+        for metadata in self.roads_metadata:
+            if metadata.get('name') == name:
+                way_id = metadata.get('way_id')
+                if way_id and way_id in self.edges_data:
+                    return self.edges_data[way_id]
         return None
     
     def get_road_centerline(self, road_name: str) -> List[Tuple[float, float, float]]:
@@ -147,12 +178,15 @@ class RoadsGeometry:
             return []
         
         centerline = []
-        for point in road.get('centerline_enu', []):
-            centerline.append((
-                point['east'],
-                point['north'],
-                point['up']
-            ))
+        centerline_nodes = road.get('centerline_nodes', [])
+        for node_id in centerline_nodes:
+            node_id_str = str(node_id)
+            if node_id_str in self.nodes_data:
+                coords = self.nodes_data[node_id_str]
+                if len(coords) >= 2:
+                    # coords is [east, north] or [east, north, up]
+                    up = coords[2] if len(coords) >= 3 else 0.0
+                    centerline.append((coords[0], coords[1], up))
         return centerline
     
     def distance_to_nearest_road(self, x: float, y: float) -> Tuple[float, Optional[Dict]]:
@@ -255,13 +289,12 @@ class RoadsGeometry:
         
         Returns:
             Tuple of (latitude, longitude, height)
+        Note: map2gazebo format may not include projection center in the same way.
+        Returns default values if not available.
         """
-        center = self.roads_data.get('projection_center', {})
-        return (
-            center.get('latitude', 0.0),
-            center.get('longitude', 0.0),
-            center.get('height', 0.0)
-        )
+        # map2gazebo format may store projection center differently
+        # For now, return defaults. Can be extended if needed.
+        return (0.0, 0.0, 0.0)
     
     def get_all_roads_count(self) -> int:
         """Get total number of roads loaded.
