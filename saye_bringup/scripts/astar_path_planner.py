@@ -322,7 +322,7 @@ class SimpleAStarPlanner:
         
         return interpolated
     
-    def astar(self, start: Tuple[float, float], goal: Tuple[float, float]) -> Optional[List[Tuple[float, float]]]:
+    def astar(self, start: Tuple[float, float], goal: Tuple[float, float]) -> Tuple[Optional[List[Tuple[float, float]]], dict]:
         """Compute shortest path using A* algorithm.
         
         A* uses f(n) = g(n) + h(n) where:
@@ -336,18 +336,44 @@ class SimpleAStarPlanner:
             goal: Goal position (x, y) in ENU coordinates
             
         Returns:
-            List of waypoints forming the shortest path, or None if no path exists
+            Tuple of (path, metrics_dict) where metrics contains:
+            - path_cost: Total path length in meters
+            - computation_time: Execution time in seconds
+            - nodes_expanded: Number of nodes explored
+            - memory_usage: Peak memory usage in MB
+            - optimal: Whether path is optimal (True if heuristic is admissible)
         """
+        import tracemalloc
+        
+        # Start tracking metrics
+        tracemalloc.start()
+        start_time = time.perf_counter()
+        
         # Find nearest road nodes
         start_node, start_dist = self._find_nearest_node(start[0], start[1])
         goal_node, goal_dist = self._find_nearest_node(goal[0], goal[1])
         
         # If start and goal are the same node, return path with start position
         if start_node == goal_node:
-            # If start position is different from node, include it
             if start_dist > 0.1:
-                return [start, start_node]
-            return [start_node]
+                path = [start, start_node]
+            else:
+                path = [start_node]
+            
+            path_cost = sum(
+                self._euclidean_distance(path[i], path[i+1])
+                for i in range(len(path) - 1)
+            ) if len(path) > 1 else 0.0
+            
+            metrics = {
+                'path_cost': path_cost,
+                'computation_time': time.perf_counter() - start_time,
+                'nodes_expanded': 0,
+                'memory_usage': tracemalloc.get_traced_memory()[1] / 1024 / 1024,
+                'optimal': True
+            }
+            tracemalloc.stop()
+            return path, metrics
         
         # A* algorithm
         # Priority queue stores (f_score, g_score, node)
@@ -363,6 +389,7 @@ class SimpleAStarPlanner:
         f_score_start = g_scores[start_node] + heuristic(start_node)
         pq = [(f_score_start, 0.0, start_node)]  # (f_score, g_score, node)
         visited = set()
+        nodes_expanded = 0  # Track nodes explored
         
         while pq:
             f_current, g_current, current = heapq.heappop(pq)
@@ -371,6 +398,7 @@ class SimpleAStarPlanner:
                 continue
             
             visited.add(current)
+            nodes_expanded += 1  # Count this node as expanded
             
             if current == goal_node:
                 # Reconstruct path (all nodes are on road centerlines)
@@ -409,7 +437,26 @@ class SimpleAStarPlanner:
                         projected = self.project_to_road(waypoint[0], waypoint[1])
                         validated_path.append(projected)
                 
-                return validated_path
+                # Calculate path cost
+                path_cost = sum(
+                    self._euclidean_distance(validated_path[i], validated_path[i+1])
+                    for i in range(len(validated_path) - 1)
+                )
+                
+                # Collect metrics
+                computation_time = time.perf_counter() - start_time
+                memory_usage = tracemalloc.get_traced_memory()[1] / 1024 / 1024
+                tracemalloc.stop()
+                
+                metrics = {
+                    'path_cost': path_cost,
+                    'computation_time': computation_time,
+                    'nodes_expanded': nodes_expanded,
+                    'memory_usage': memory_usage,
+                    'optimal': True  # A* with Euclidean heuristic is optimal
+                }
+                
+                return validated_path, metrics
             
             # Explore neighbors (all are road centerline points)
             for neighbor, edge_weight in self.graph.get(current, []):
@@ -428,7 +475,15 @@ class SimpleAStarPlanner:
                     f_score = tentative_g + heuristic(neighbor)
                     heapq.heappush(pq, (f_score, tentative_g, neighbor))
         
-        return None
+        # No path found
+        tracemalloc.stop()
+        return None, {
+            'path_cost': float('inf'),
+            'computation_time': time.perf_counter() - start_time,
+            'nodes_expanded': nodes_expanded,
+            'memory_usage': tracemalloc.get_traced_memory()[1] / 1024 / 1024,
+            'optimal': False
+        }
 
 
 class AStarPathPlannerNode(Node):
@@ -523,7 +578,7 @@ class AStarPathPlannerNode(Node):
         """Plan path using A*."""
         self.get_logger().info(f"Planning path from ({start_x:.2f}, {start_y:.2f}) to ({goal_x:.2f}, {goal_y:.2f})")
         
-        path = self.planner.astar((start_x, start_y), (goal_x, goal_y))
+        path, metrics = self.planner.astar((start_x, start_y), (goal_x, goal_y))
         
         if path is None:
             self.get_logger().error("No path found!")
@@ -534,13 +589,10 @@ class AStarPathPlannerNode(Node):
         self.goal_reached = False
         self.path_following = True
         
-        # Calculate path length
-        path_length = sum(
-            SimpleAStarPlanner._euclidean_distance(path[i], path[i+1])
-            for i in range(len(path) - 1)
-        )
-        
-        self.get_logger().info(f"Path found! Length: {path_length:.2f}m, Waypoints: {len(path)}")
+        # Log metrics
+        self.get_logger().info(f"Path found! Length: {metrics['path_cost']:.2f}m, Waypoints: {len(path)}")
+        self.get_logger().info(f"Metrics: Time={metrics['computation_time']*1000:.2f}ms, "
+                              f"Nodes={metrics['nodes_expanded']}, Memory={metrics['memory_usage']:.2f}MB")
         return True
     
     def update_waypoint(self, current_x, current_y):
@@ -888,41 +940,104 @@ if __name__ == "__main__":
     # Get start position from current pose
     start_x = current_pose.pose.pose.position.x
     start_y = current_pose.pose.pose.position.y
+    start = (start_x, start_y)
     
-    # Goal positions tested (similar to rrt_ob.py)
-    # goal = (10.0, -100.0)  # Example goal 1 (too close)
-    # goal = (50.0, -120.0)  # Example goal 2
-    # goal = (100.0, -150.0)  # Example goal 3
-    # goal = (5.0, -90.0)  # Example goal 4
-    # goal = (50.0, -120.0)  # Active goal (further away for testing)
-    goal = (-200.0, -400.0)
+    # Route goals for testing (A->B, B->C, C->D, ...) - 15 chained routes
+    # Uncomment one goal at a time to test sequentially
+    # Each route's goal becomes the next route's start
+    # NOTE: These coordinates are EXTRACTED FROM ACTUAL ROAD NETWORK in map2gazebo/maps/
+    # They are guaranteed to be on roads (from centerline_points and nodes_enu)
+    # IMPORTANT: Keep this list IDENTICAL in both dijkstra_path_planner.py and astar_path_planner.py
+    # for fair comparison!
+    # Generated by: map2gazebo/scripts/extract_route_goals.py
+    ROUTE_GOALS = [
+        # Route 1: Current Position -> A (short route)
+        (-0.27, -102.52),
+        # Route 2: A -> B (short route)
+        # (4.80, -82.97),
+        # Route 3: B -> C (short route)
+        # (-15.17, -103.69),
+        # Route 4: C -> D (medium route)
+        # (-21.63, -123.24),
+        # Route 5: D -> E (medium route)
+        # (-20.17, -143.25),
+        # Route 6: E -> F (medium route)
+        # (-40.98, -141.76),
+        # Route 7: F -> G (medium route)
+        # (-59.76, -134.67),
+        # Route 8: G -> H (medium route)
+        # (-75.78, -122.24),
+        # Route 9: H -> I (medium route)
+        # (-69.87, -142.90),
+        # Route 10: I -> J (medium route)
+        # (-69.84, -163.39),
+        # Route 11: J -> K (long route)
+        # (-85.20, -177.28),
+        # Route 12: K -> L (long route)
+        # (-70.45, -191.99),
+        # Route 13: L -> M (long route)
+        # (-51.69, -200.13),
+        # Route 14: M -> N (long route)
+        # (-50.16, -220.24),
+        # Route 15: N -> O (long route)
+        # (-53.70, -200.26),
+    ]
     
+    # Get active goal (first uncommented)
+    goal = ROUTE_GOALS[0]
     goal_x, goal_y = goal
     
-    node.get_logger().info(f"Start position: ({start_x:.2f}, {start_y:.2f})")
+    node.get_logger().info("=" * 80)
+    node.get_logger().info("PATH PLANNING METRICS")
+    node.get_logger().info("=" * 80)
+    node.get_logger().info(f"Start position: ({start[0]:.2f}, {start[1]:.2f})")
     node.get_logger().info(f"Goal position: ({goal_x:.2f}, {goal_y:.2f})")
     
-    # Plan path
-    path = node.planner.astar((start_x, start_y), (goal_x, goal_y))
+    # Plan path and get metrics
+    path, metrics = node.planner.astar(start, goal)
     
     if path is None:
         node.get_logger().error("No path found!")
+        node.get_logger().info("Metrics:")
+        node.get_logger().info(f"  Computation time: {metrics['computation_time']*1000:.2f}ms")
+        node.get_logger().info(f"  Nodes expanded: {metrics['nodes_expanded']}")
         rclpy.shutdown()
         exit(1)
     else:
-        node.get_logger().info("Path found!")
-        node.get_logger().info(f"Path has {len(path)} waypoints")
+        node.get_logger().info("=" * 80)
+        node.get_logger().info("PATH PLANNING RESULTS")
+        node.get_logger().info("=" * 80)
+        node.get_logger().info(f"Path found: {len(path)} waypoints")
+        
+        # Print all metrics
+        node.get_logger().info("")
+        node.get_logger().info("1. PATH COST (Total Distance)")
+        node.get_logger().info(f"   {metrics['path_cost']:.4f} meters")
+        
+        node.get_logger().info("")
+        node.get_logger().info("2. COMPUTATION TIME")
+        node.get_logger().info(f"   {metrics['computation_time']*1000:.4f} milliseconds")
+        node.get_logger().info(f"   {metrics['computation_time']:.6f} seconds")
+        
+        node.get_logger().info("")
+        node.get_logger().info("3. NODES EXPANDED")
+        node.get_logger().info(f"   {metrics['nodes_expanded']} nodes explored")
+        
+        node.get_logger().info("")
+        node.get_logger().info("4. MEMORY USAGE")
+        node.get_logger().info(f"   {metrics['memory_usage']:.4f} MB (peak)")
+        
+        node.get_logger().info("")
+        node.get_logger().info("5. OPTIMALITY")
+        node.get_logger().info(f"   {'✓ Optimal (guaranteed shortest path)' if metrics['optimal'] else '✗ Not optimal'}")
+        
+        node.get_logger().info("")
+        node.get_logger().info("=" * 80)
+        
         if len(path) <= 10:
             node.get_logger().info(f"Full path: {path}")
         else:
-            node.get_logger().info(f"Path: {path[:5]}... (showing first 5 waypoints)")
-        
-        # Calculate and log path length
-        path_length = sum(
-            SimpleAStarPlanner._euclidean_distance(path[i], path[i+1])
-            for i in range(len(path) - 1)
-        )
-        node.get_logger().info(f"Total path length: {path_length:.2f}m")
+            node.get_logger().info(f"Path preview: {path[:3]}...{path[-3:]}")
     
     # Start following path
     move_vehicle(path, node)
