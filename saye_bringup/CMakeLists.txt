@@ -18,8 +18,12 @@ install(
 install(PROGRAMS
   scripts/odom_to_tf.py
   scripts/save_map.py
-  scripts/dijkstra_path_planner.py
-  DESTINATION lib/${PROJECT_NAME}
+  scripts/path_planning/dijkstra_path_planner.py
+  scripts/path_planning/astar_path_planner.py
+  scripts/path_planning/base_path_planner.py
+  scripts/path_planning/base_path_planner_node.py
+  scripts/path_planning/path_planner_utils.py
+  DESTINATION lib/${PROJECT_NAME}/path_planning
 )
   
 if(BUILD_TESTING)
