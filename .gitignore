@@ -4,6 +4,11 @@
 /.vscode/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+**/__pycache__/
+**/*.pyc
+**/*.cpython-*.pyc
 
 # DRL training artifacts
 ackermann_drl/checkpoints/
