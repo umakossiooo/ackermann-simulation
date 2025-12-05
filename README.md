@@ -125,7 +125,7 @@ ros2 run nav2_map_server map_saver_cli \
 Run the Dijkstra path planner for autonomous navigation within road boundaries:
 
 ```bash
-python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/dijkstra_path_planner.py
+python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/dijkstra_path_planner.py
 ```
 
 ### A* Path Planning
@@ -133,7 +133,7 @@ python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/di
 Run the A* path planner for autonomous navigation (potentially faster than Dijkstra):
 
 ```bash
-python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/astar_path_planner.py
+python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/astar_path_planner.py
 ```
 
 **Prerequisites (both planners):**
