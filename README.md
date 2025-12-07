@@ -141,3 +141,11 @@ python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/pa
 - Map files must be available (edges.json, map.json, and optionally road_polygons_merged.json)
 
 **Note:** The goal position can be modified in the script by editing the `goal` variable in the `__main__` section.
+
+### Path Visualization
+
+To verify that both algorithms produce the same optimal path and visualize it on a static map, execute this command inside the container:
+
+```bash
+python3 src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/visualize_path.py
+```
