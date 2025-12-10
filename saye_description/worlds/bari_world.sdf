@@ -32,6 +32,10 @@
       <uri>model://roads_mesh</uri>
     </include>
 
+    <include>
+      <uri>model://buildings_mesh</uri>
+    </include>
+
     <model name="ground_plane">
       <static>true</static>
       <pose>0 0 0 0 0 0</pose>

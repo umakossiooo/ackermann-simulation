@@ -1,0 +1,22 @@
+<?xml version="1.6"?>
+<sdf version="1.8">
+  <model name="buildings_mesh">
+    <static>true</static>
+    <link name="link">
+      <visual name="visual">
+        <geometry>
+          <mesh><uri>model://buildings_mesh/meshes/buildings.obj</uri></mesh>
+        </geometry>
+        <material>
+          <diffuse>0.6 0.6 0.65 1</diffuse>
+          <ambient>0.4 0.4 0.45 1</ambient>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <mesh><uri>model://buildings_mesh/meshes/buildings.obj</uri></mesh>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
