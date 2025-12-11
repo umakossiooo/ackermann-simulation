@@ -14,3 +14,8 @@ __pycache__/
 ackermann_drl/checkpoints/
 ackermann_drl/logs/
 # saye_description/worlds/models/
+
+# Package specific build artifacts
+**/build/
+**/install/
+**/log/

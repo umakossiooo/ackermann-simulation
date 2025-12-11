@@ -51,9 +51,11 @@ def generate_launch_description():
             pkg_project_description,
             'worlds',
             LaunchConfiguration('world')
-        ]),
-        description='Full argument passed to gz_sim.launch.py (e.g., absolute world path)'
+        ])
     )
+
+    # Append -r to run simulation immediately
+    gz_args_running = [LaunchConfiguration('gz_args'), ' -r']
 
     # Whether to launch the Gazebo GUI; disable for headless stability in containers
     gui_arg = DeclareLaunchArgument(
@@ -77,7 +79,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
         launch_arguments={
-            'gz_args': LaunchConfiguration('gz_args'),
+            'gz_args': gz_args_running,
             'gui': LaunchConfiguration('gui')
         }.items(),
     )

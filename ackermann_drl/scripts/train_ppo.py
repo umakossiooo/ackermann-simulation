@@ -34,9 +34,9 @@ training_vec_env = None
 class RewardLoggingCallback(BaseCallback):
     """Callback to log detailed reward breakdown to TensorBoard and console."""
     
-    def __init__(self, verbose=0, log_interval=25):
+    def __init__(self, verbose=0, log_interval=1):
         super().__init__(verbose)
-        self.log_interval = log_interval  # Print every 25 steps for faster feedback and better visibility
+        self.log_interval = log_interval  # Print every 1 step for maximum frequency
         self.step_count = 0
         self.reward_keys = [
             'reward_progress',
@@ -49,7 +49,8 @@ class RewardLoggingCallback(BaseCallback):
             'penalty_collision',
             'penalty_high_speed',
             'penalty_aggressive_change',
-            'penalty_time'
+            'penalty_time',
+            'penalty_path_deviation'
         ]
     
     def _on_step(self) -> bool:
@@ -108,26 +109,27 @@ class RewardLoggingCallback(BaseCallback):
                 road_dist = first_info.get('road_distance', -1.0)
                 min_lidar = first_info.get('min_lidar_distance', -1.0)
                 
-                print(f"\n{'='*70}")
-                print(f"[Step {self.step_count}] REWARD BREAKDOWN (averaged over {count} steps)")
-                print(f"{'='*70}")
-                print(f"  ✓ Progress Reward:    {reward_sums['reward_progress']/count:+.6f} (getting closer to goal)")
-                print(f"  ✓ Goal Reward:        {reward_sums['reward_goal']/count:+.6f} (reaching goal)")
-                print(f"  ✓ Delivery On-time:   {reward_sums['reward_delivery_on_time']/count:+.6f} (delivered on time)")
-                print(f"  ✓ Battery Conservation: {reward_sums['reward_battery_conservation']/count:+.6f} (maintaining high battery)")
-                print(f"  ✓ Efficiency Reward:  {reward_sums['reward_efficiency']/count:+.6f} (progress per battery)")
-                print(f"  ✗ Delivery Late:      {reward_sums['penalty_delivery_late']/count:+.6f} (late delivery penalty)")
-                print(f"  ✗ Off-road Penalty:   {reward_sums['penalty_offroad']/count:+.6f} (driving off-road)")
+                print(f"\n{'='*70}", flush=True)
+                print(f"[Step {self.step_count}] REWARD BREAKDOWN (averaged over {count} steps)", flush=True)
+                print(f"{'='*70}", flush=True)
+                print(f"  [+] Progress Reward:    {reward_sums['reward_progress']/count:+.6f} (getting closer to goal)", flush=True)
+                print(f"  [+] Goal Reward:        {reward_sums['reward_goal']/count:+.6f} (reaching goal)")
+                print(f"  [+] Delivery On-time:   {reward_sums['reward_delivery_on_time']/count:+.6f} (delivered on time)")
+                print(f"  [+] Battery Conservation: {reward_sums['reward_battery_conservation']/count:+.6f} (maintaining high battery)")
+                print(f"  [+] Efficiency Reward:  {reward_sums['reward_efficiency']/count:+.6f} (progress per battery)")
+                print(f"  [-] Delivery Late:      {reward_sums['penalty_delivery_late']/count:+.6f} (late delivery penalty)")
+                print(f"  [-] Off-road Penalty:   {reward_sums['penalty_offroad']/count:+.6f} (driving off-road)")
                 collision_sum = reward_sums['penalty_collision']
                 collision_avg = collision_sum / count if count > 0 else 0.0
                 collision_max = reward_maxes['penalty_collision']
                 if collision_count > 0:
-                    print(f"  ✗ Collision Penalty:  {collision_avg:+.6f} (avg) | {collision_max:+.6f} (max) | {collision_count} collisions in {count} steps")
+                    print(f"  [-] Collision Penalty:  {collision_avg:+.6f} (avg) | {collision_max:+.6f} (max) | {collision_count} collisions in {count} steps")
                 else:
-                    print(f"  ✗ Collision Penalty:  {collision_avg:+.6f} (no collisions)")
-                print(f"  ✗ High Speed Penalty: {reward_sums['penalty_high_speed']/count:+.6f} (excessive speed >3.0 m/s)")
-                print(f"  ✗ Aggressive Change:  {reward_sums['penalty_aggressive_change']/count:+.6f} (wasteful velocity changes)")
-                print(f"  ✗ Time Penalty:       {reward_sums['penalty_time']/count:+.6f} (per-step penalty)")
+                    print(f"  [-] Collision Penalty:  {collision_avg:+.6f} (no collisions)")
+                print(f"  [-] High Speed Penalty: {reward_sums['penalty_high_speed']/count:+.6f} (excessive speed >3.0 m/s)")
+                print(f"  [-] Aggressive Change:  {reward_sums['penalty_aggressive_change']/count:+.6f} (wasteful velocity changes)")
+                print(f"  [-] Time Penalty:       {reward_sums['penalty_time']/count:+.6f} (per-step penalty)")
+                print(f"  [-] Path Deviation:     {reward_sums['penalty_path_deviation']/count:+.6f} (deviating from A* path)")
                 total = sum(reward_sums[k]/count for k in self.reward_keys)
                 print(f"{'─'*70}")
                 print(f"  TOTAL REWARD:         {total:+.6f}")
@@ -156,7 +158,7 @@ class RewardLoggingCallback(BaseCallback):
                     print(f"  Delivery Time: {delivery_elapsed:.1f}s / {delivery_deadline:.1f}s (remaining: {delivery_remaining:.1f}s) | On-time: {delivery_on_time}")
                 # Highlight collisions more prominently
                 if is_collision:
-                    print(f"  ⚠️  COLLISION DETECTED: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad})")
+                    print(f"  [!] COLLISION DETECTED: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad})")
                     print(f"     min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m), road_dist={road_dist:.2f}m (offroad_threshold={offroad_collision_threshold}m)")
                     print(f"     Penalty applied: {collision_avg:+.4f} (max={collision_max:+.4f}, count={collision_count})")
                 else:
@@ -229,7 +231,7 @@ def main():
     
     def signal_handler(sig, frame):
         """Handle Ctrl+C to stop the car immediately."""
-        print("\n\n⚠️  Interrupt received! Stopping car immediately...", flush=True)
+        print("\n\n[!] Interrupt received! Stopping car immediately...", flush=True)
         try:
             # Stop car via environment
             if training_env is not None:
@@ -382,7 +384,7 @@ def main():
     )
     
     # Set up reward logging callback
-    reward_callback = RewardLoggingCallback(verbose=0)
+    reward_callback = RewardLoggingCallback(verbose=1)
     
     # Combine callbacks
     from stable_baselines3.common.callbacks import CallbackList
@@ -414,7 +416,7 @@ def main():
         print()
         print(f"Saving final model to {final_model_path}...")
         model.save(str(final_model_path))
-        print("✓ Training completed successfully!")
+        print("[+] Training completed successfully!")
         
     except KeyboardInterrupt:
         print()
@@ -452,7 +454,7 @@ def main():
         print(f"\nSaving interrupted model to {interrupted_model_path}...")
         try:
             model.save(str(interrupted_model_path))
-            print("✓ Model saved")
+            print("[+] Model saved")
         except Exception as e:
             print(f"Warning: Could not save model: {e}")
     
@@ -522,7 +524,7 @@ def main():
             except:
                 pass
         
-        print("✓ Cleanup complete - car should be stopped")
+        print("[+] Cleanup complete - car should be stopped")
 
 
 if __name__ == '__main__':
