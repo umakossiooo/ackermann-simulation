@@ -291,6 +291,8 @@ def main():
                        help='Maximum gradient norm (default: 0.5)')
     parser.add_argument('--device', type=str, default='auto',
                        help='Device to use (cpu, cuda, or auto) (default: auto)')
+    parser.add_argument('--load-model', type=str, default=None,
+                       help='Path to a zip file to load and resume training from')
     
     args = parser.parse_args()
     
@@ -350,29 +352,47 @@ def main():
     # Create PPO agent
     print("Creating PPO agent...")
     print(f"Device: {args.device}")
-    print(f"Learning rate: {args.learning_rate}")
-    print(f"Batch size: {args.batch_size}")
-    print(f"N steps: {args.n_steps}")
-    print(f"N epochs: {args.n_epochs}")
-    print()
     
-    model = PPO(
-        'MlpPolicy',
-        vec_env,
-        learning_rate=args.learning_rate,
-        n_steps=args.n_steps,
-        batch_size=args.batch_size,
-        n_epochs=args.n_epochs,
-        gamma=args.gamma,
-        gae_lambda=args.gae_lambda,
-        clip_range=args.clip_range,
-        ent_coef=args.ent_coef,
-        vf_coef=args.vf_coef,
-        max_grad_norm=args.max_grad_norm,
-        verbose=1,
-        device=args.device,
-        tensorboard_log=str(log_dir / 'tensorboard')
-    )
+    if args.load_model:
+        print(f"[INFO] Loading existing model from: {args.load_model}")
+        if not os.path.exists(args.load_model):
+            print(f"[ERROR] Model file not found: {args.load_model}")
+            sys.exit(1)
+            
+        model = PPO.load(
+            args.load_model,
+            env=vec_env,
+            device=args.device,
+            tensorboard_log=str(log_dir / 'tensorboard'),
+            verbose=1,
+            # Allow updating learning rate if provided? Default keeps saved one.
+            # learning_rate=args.learning_rate 
+        )
+        print("[INFO] Model loaded successfully. Resuming training...")
+    else:
+        print(f"Learning rate: {args.learning_rate}")
+        print(f"Batch size: {args.batch_size}")
+        print(f"N steps: {args.n_steps}")
+        print(f"N epochs: {args.n_epochs}")
+        print()
+        
+        model = PPO(
+            'MlpPolicy',
+            vec_env,
+            learning_rate=args.learning_rate,
+            n_steps=args.n_steps,
+            batch_size=args.batch_size,
+            n_epochs=args.n_epochs,
+            gamma=args.gamma,
+            gae_lambda=args.gae_lambda,
+            clip_range=args.clip_range,
+            ent_coef=args.ent_coef,
+            vf_coef=args.vf_coef,
+            max_grad_norm=args.max_grad_norm,
+            verbose=1,
+            device=args.device,
+            tensorboard_log=str(log_dir / 'tensorboard')
+        )
     
     # Set up checkpoint callback
     checkpoint_callback = CheckpointCallback(

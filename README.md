@@ -147,5 +147,21 @@ python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/pa
 To verify that both algorithms produce the same optimal path and visualize it on a static map, execute this command inside the container:
 
 ```bash
-python3 src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/visualize_path.py
+## DRL Training (PPO)
+
+### 1. Start Training (New Session)
+```bash
+python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py
+```
+
+### 2. Resume Training (From Saved Checkpoint)
+Use `Ctrl+C` to pause training safely. To resume:
+```bash
+python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py \
+  --load-model src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/ppo_ackermann_interrupted.zip
+```
+
+### 3. Monitor Training (TensorBoard)
+```bash
+tensorboard --logdir src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs
 ```
