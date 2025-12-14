@@ -129,7 +129,9 @@ class AckermannCityEnv(Node):
         # Thresholds
         self.goal_reached_threshold = 2.0
         self.collision_threshold = 0.8 
-        self.offroad_collision_threshold = 50.0 # Increased to 50.0 to disable virtual off-road collisions while training
+        # Set strict off-road threshold (e.g. 1.5m) to terminate episode if driving fully on sidewalk
+        # This acts as a "Virtual Wall" for the DRL agent
+        self.offroad_collision_threshold = 1.5 
         self.path_deviation_threshold = 0.5 # Meters allowed from path center before penalty kicks in
         
         # Tracking variables
@@ -367,7 +369,7 @@ class AckermannCityEnv(Node):
                 if path:
                     self.current_path = path
                     safe_log(self.get_logger().info, f"Path found! Length: {len(path)} nodes")
-            else:
+                else:
                     safe_log(self.get_logger().warn, "A* failed to find a path! Will use euclidean guidance.")
             except Exception as e:
                 safe_log(self.get_logger().error, f"Path planning error: {e}")
@@ -414,7 +416,12 @@ class AckermannCityEnv(Node):
         
         observation = self.get_observation()
         
+        pos_x = self.latest_odom.pose.pose.position.x if self.latest_odom else 0.0
+        pos_y = self.latest_odom.pose.pose.position.y if self.latest_odom else 0.0
+
         info = {
+            'pos_x': pos_x,
+            'pos_y': pos_y,
             'velocity': self.current_step_velocity,
             'distance_to_goal': self.get_distance_to_goal(),
             'battery_level': self.battery.get_battery_level(),
@@ -494,7 +501,7 @@ class AckermannCityEnv(Node):
             if accumulated_dist >= self.lookahead_distance:
                 target_idx = i + 1
                 break
-                else:
+        else:
             # Reached end of path
             target_idx = len(self.current_path) - 1
             
@@ -558,7 +565,7 @@ class AckermannCityEnv(Node):
         if self.current_path:
              obs[idx] = cte
         else:
-        obs[idx] = self.get_road_distance()
+             obs[idx] = self.get_road_distance()
         
         return obs
     
@@ -602,11 +609,11 @@ class AckermannCityEnv(Node):
             reward += self.reward_collision_penalty
             info['penalty_collision'] = self.reward_collision_penalty
             
-        # 5. Goal & Delivery
-            if self.is_goal_reached():
-                reward += self.reward_goal_reached
+        # 5. Goal & Delivery (Only if NOT crashed)
+        elif self.is_goal_reached():
+            reward += self.reward_goal_reached
             info['reward_goal'] = self.reward_goal_reached
-                
+            
             # Punctuality
             if self.delivery_start_time:
                 elapsed = time.time() - self.delivery_start_time

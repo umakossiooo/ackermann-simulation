@@ -163,8 +163,11 @@ class RewardLoggingCallback(BaseCallback):
                     print(f"     Penalty applied: {collision_avg:+.4f} (max={collision_max:+.4f}, count={collision_count})")
                 else:
                     print(f"  Collision: is_collision={is_collision} (lidar={is_collision_lidar}, offroad={is_collision_offroad}), min_lidar={min_lidar:.2f}m (threshold={collision_threshold}m), road_dist={road_dist:.2f}m (offroad_threshold={offroad_collision_threshold}m)")
+                pos_x = first_info.get('pos_x', 0.0)
+                pos_y = first_info.get('pos_y', 0.0)
+                
                 if velocity >= 0:
-                    print(f"  Car velocity: {velocity:.2f} m/s, distance_to_goal: {distance_to_goal:.2f}m\n")
+                    print(f"  Car State: x={pos_x:.1f}, y={pos_y:.1f}, v={velocity:.2f} m/s, dist_to_goal={distance_to_goal:.2f}m\n")
                 else:
                     print()
         
