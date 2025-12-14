@@ -248,8 +248,8 @@ class AckermannCityEnv(Node):
             # Spin multiple times to ensure we catch up on messages
             for _ in range(5):
                 rclpy.spin_once(self, timeout_sec=timeout_sec)
-                except Exception:
-                    pass
+        except Exception:
+            pass
 
     # --- MAIN GYM INTERFACE ---
     
