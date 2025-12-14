@@ -149,19 +149,43 @@ To verify that both algorithms produce the same optimal path and visualize it on
 ```bash
 ## DRL Training (PPO)
 
+**Important:** Before starting, ensure the simulation is running:
+```bash
+ros2 launch saye_bringup saye_spawn.launch.py gui:=true
+```
+
 ### 1. Start Training (New Session)
+This starts a new agent from scratch.
 ```bash
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py
 ```
 
-### 2. Resume Training (From Saved Checkpoint)
+### 2. Reset Training (Delete All History)
+If you want to completely restart (delete all logs and models) to begin fresh:
+```bash
+rm -rf src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/*
+rm -rf src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/*
+```
+
+### 3. Resume Training (From Saved Checkpoint)
 Use `Ctrl+C` to pause training safely. To resume:
 ```bash
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py \
   --load-model src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/ppo_ackermann_interrupted.zip
 ```
 
-### 3. Monitor Training (TensorBoard)
-```bash
-tensorboard --logdir src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs
-```
+### 4. Monitor Training
+**Method A: Terminal (Real-time)**
+The training script prints a detailed "REWARD BREAKDOWN" every step. Use this to see:
+- Progress Reward (getting closer to goal?)
+- Collision Penalty (did it hit something?)
+- Off-road Penalty (is it driving on the sidewalk?)
+
+**Method B: TensorBoard (Graphs)**
+Logs are saved in `src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/tensorboard`.
+Since the viewer isn't installed in Docker, you can:
+1. Copy the `logs` folder to your host computer.
+2. Run `tensorboard --logdir logs/tensorboard` on your host.
+
+**Method C: Excel (CSV)**
+A `monitor.csv` file is saved in `src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/`. You can open this in Excel to plot the reward curve.
