@@ -322,6 +322,8 @@ def main():
     print("=" * 60)
     print(f"Checkpoint directory: {checkpoint_dir}")
     print(f"Log directory: {log_dir}")
+    print(f"TensorBoard: Logs will be saved to {log_dir / 'tensorboard'}")
+    print("NOTE: To view graphs, copy the 'logs' folder to your host and run 'tensorboard --logdir logs'")
     print(f"Total timesteps: {args.total_timesteps}")
     print(f"Checkpoint interval: {args.checkpoint_interval}")
     print()

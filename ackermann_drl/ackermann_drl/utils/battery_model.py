@@ -29,6 +29,7 @@ class BatteryModel:
                  initial_level: float = 1.0,
                  alpha: float = 0.001,  # Energy per meter (α)
                  beta: float = 0.01,   # Energy per m/s velocity change (β)
+                 idle_drain: float = 0.0005, # Idle drain per second
                  vehicle_weight: float = 1000.0):  # Vehicle weight in kg
         """Initialize battery model.
         
@@ -36,6 +37,7 @@ class BatteryModel:
             initial_level: Initial battery level [0,1] (default: 1.0 = 100%)
             alpha: Distance coefficient - energy consumed per meter traveled (default: 0.001)
             beta: Velocity change coefficient - energy consumed per m/s velocity change (default: 0.01)
+            idle_drain: Energy consumed per second even when stopped (default: 0.0005)
             vehicle_weight: Vehicle weight in kilograms (default: 1000.0 kg)
                           Used to scale energy consumption (heavier = more energy)
         """
@@ -43,6 +45,7 @@ class BatteryModel:
         self.battery_level = self.initial_level
         self.alpha = alpha
         self.beta = beta
+        self.idle_drain = idle_drain
         self.vehicle_weight = vehicle_weight
         
         # Reference weight for normalization (1000 kg = factor of 1.0)
@@ -80,10 +83,11 @@ class BatteryModel:
         if self.prev_velocity is not None:
             delta_v = abs(velocity - self.prev_velocity)
         
-        # Calculate energy drop: drop = (α*(distance) + β*|Δv|) * weight_factor
+        # Calculate energy drop: drop = (α*(distance) + β*|Δv|) * weight_factor + (idle * dt)
         # Heavier vehicles consume more energy for the same movement
         base_energy_drop = self.alpha * distance + self.beta * delta_v
-        energy_drop = base_energy_drop * self.weight_factor
+        idle_energy_drop = self.idle_drain * dt
+        energy_drop = (base_energy_drop * self.weight_factor) + idle_energy_drop
         
         # Update battery level (decrease by energy drop)
         self.battery_level = np.clip(self.battery_level - energy_drop, 0.0, 1.0)

@@ -129,7 +129,7 @@ class AckermannCityEnv(Node):
         # Thresholds
         self.goal_reached_threshold = 2.0
         self.collision_threshold = 0.8 
-        self.offroad_collision_threshold = 0.5
+        self.offroad_collision_threshold = 50.0 # Increased to 50.0 to disable virtual off-road collisions while training
         self.path_deviation_threshold = 0.5 # Meters allowed from path center before penalty kicks in
         
         # Tracking variables
@@ -248,8 +248,8 @@ class AckermannCityEnv(Node):
             # Spin multiple times to ensure we catch up on messages
             for _ in range(5):
                 rclpy.spin_once(self, timeout_sec=timeout_sec)
-        except Exception:
-            pass
+                except Exception:
+                    pass
 
     # --- MAIN GYM INTERFACE ---
     
@@ -367,7 +367,7 @@ class AckermannCityEnv(Node):
                 if path:
                     self.current_path = path
                     safe_log(self.get_logger().info, f"Path found! Length: {len(path)} nodes")
-                else:
+            else:
                     safe_log(self.get_logger().warn, "A* failed to find a path! Will use euclidean guidance.")
             except Exception as e:
                 safe_log(self.get_logger().error, f"Path planning error: {e}")
@@ -443,7 +443,7 @@ class AckermannCityEnv(Node):
                 info['min_lidar_distance'] = -1.0
         else:
             info['min_lidar_distance'] = -1.0
-
+        
         return observation, reward, terminated, truncated, info
     
     # --- PATH PLANNING HELPERS ---
@@ -494,7 +494,7 @@ class AckermannCityEnv(Node):
             if accumulated_dist >= self.lookahead_distance:
                 target_idx = i + 1
                 break
-        else:
+                else:
             # Reached end of path
             target_idx = len(self.current_path) - 1
             
@@ -558,7 +558,7 @@ class AckermannCityEnv(Node):
         if self.current_path:
              obs[idx] = cte
         else:
-             obs[idx] = self.get_road_distance()
+        obs[idx] = self.get_road_distance()
         
         return obs
     
@@ -603,8 +603,8 @@ class AckermannCityEnv(Node):
             info['penalty_collision'] = self.reward_collision_penalty
             
         # 5. Goal & Delivery
-        if self.is_goal_reached():
-            reward += self.reward_goal_reached
+            if self.is_goal_reached():
+                reward += self.reward_goal_reached
             info['reward_goal'] = self.reward_goal_reached
                 
             # Punctuality
@@ -614,7 +614,8 @@ class AckermannCityEnv(Node):
                     reward += self.reward_delivery_on_time
                     info['reward_delivery_on_time'] = self.reward_delivery_on_time
                 elif self.delivery_deadline:
-                    late_pen = self.reward_delivery_late_penalty * (elapsed - self.delivery_deadline)
+                    # Scaled down penalty (e.g. -0.5 per second late)
+                    late_pen = -0.5 * (elapsed - self.delivery_deadline)
                     reward += late_pen
                     info['penalty_delivery_late'] = late_pen
 
@@ -741,8 +742,8 @@ class AckermannCityEnv(Node):
                  self.current_path_index = 0
                  safe_log(self.get_logger().info, f"New goal set! Path length: {len(path)}")
         else:
-                 self.current_path = []
-                 safe_log(self.get_logger().warn, "Could not find path to new goal!")
+             self.current_path = []
+             safe_log(self.get_logger().warn, "Could not find path to new goal!")
 
     def stop(self):
         self._publish_cmd(0.0, 0.0)
