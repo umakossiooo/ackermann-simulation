@@ -42,6 +42,10 @@
     </include>
 
     <include>
+      <uri>model://sidewalks_mesh</uri>
+    </include>
+
+    <include>
       <uri>model://buildings_mesh</uri>
     </include>
 
