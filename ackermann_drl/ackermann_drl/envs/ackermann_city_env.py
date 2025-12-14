@@ -139,6 +139,8 @@ class AckermannCityEnv(Node):
         self.prev_distance_along_path = None 
         self.prev_position = None
         self.current_step_velocity = 0.0
+        self.prev_angular_vel = 0.0
+        self.battery_consumed_this_step = 0.0
         
         # Delivery tracking
         self.delivery_start_time = None
@@ -398,14 +400,20 @@ class AckermannCityEnv(Node):
         self._update_velocity_tracking()
         
         # Update Battery
+        self.battery_consumed_this_step = 0.0
         if self.latest_odom:
+             old_level = self.battery.get_battery_level()
              pos = self.latest_odom.pose.pose.position
              self.battery.update(np.array([pos.x, pos.y, pos.z]), self.current_step_velocity, dt=0.1)
+             self.battery_consumed_this_step = max(0.0, old_level - self.battery.get_battery_level())
         
-        # Compute Reward
-        reward, reward_info = self.compute_reward()
+        # Compute Reward (pass current angular vel for smoothness calc)
+        reward, reward_info = self.compute_reward(angular_vel)
         self.episode_cumulative_reward += reward
         self.training_cumulative_reward += reward
+        
+        # Update previous action for next step
+        self.prev_angular_vel = angular_vel
         
         # Check Termination
         terminated, truncated = self.check_termination()
@@ -569,14 +577,33 @@ class AckermannCityEnv(Node):
         
         return obs
     
-    def compute_reward(self) -> Tuple[float, Dict[str, float]]:
+    def compute_reward(self, current_angular_vel: float = 0.0) -> Tuple[float, Dict[str, float]]:
         reward = 0.0
         info = {}
         
         if not self.latest_odom or not self.current_goal:
             return 0.0, info
 
-        # 1. Progress Reward
+        # --- UMA KOSSIO SPECIFIC REWARDS ---
+        
+        # 1. Energy Efficiency (Minimize Consumption)
+        # Penalize the actual energy amount used this step
+        # Scale: -100.0 means 1% battery usage costs -1.0 reward
+        energy_penalty = -100.0 * self.battery_consumed_this_step
+        reward += energy_penalty
+        info['reward_efficiency'] = energy_penalty
+
+        # 2. Smoothness/Stability (Minimize Aggressive Steering)
+        # Penalize rapid changes in steering (jerk) to prevent instability
+        steering_jerk = abs(current_angular_vel - self.prev_angular_vel)
+        if steering_jerk > 0.2: # Threshold for "aggressive"
+             smoothness_penalty = -0.5 * steering_jerk
+             reward += smoothness_penalty
+             info['penalty_aggressive_change'] = smoothness_penalty
+
+        # --- STANDARD NAVIGATION REWARDS ---
+
+        # 3. Progress Reward
         # We stick to global progress but heavily penalized by path deviation
         current_dist = self.get_distance_to_goal()
         if self.prev_distance_to_goal is not None:
