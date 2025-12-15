@@ -144,8 +144,8 @@ class RewardLoggingCallback(BaseCallback):
                 odom_is_fresh = first_info.get('odom_is_fresh', False)
                 scan_count = first_info.get('scan_count', 0)
                 odom_count = first_info.get('odom_count', 0)
-                collision_threshold = 1.5  # From ackermann_city_env (LiDAR collision threshold)
-                offroad_collision_threshold = 0.5  # From ackermann_city_env (off-road/sidewalk collision threshold)
+                collision_threshold = 0.8  # From ackermann_city_env (LiDAR collision threshold)
+                offroad_collision_threshold = 1.5  # From ackermann_city_env (off-road/sidewalk collision threshold)
                 # Get delivery time info
                 delivery_elapsed = first_info.get('delivery_elapsed_time', -1.0)
                 delivery_deadline = first_info.get('delivery_deadline', -1.0)
