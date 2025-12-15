@@ -140,6 +140,7 @@ class AckermannCityEnv(Node):
         self.prev_position = None
         self.current_step_velocity = 0.0
         self.prev_angular_vel = 0.0
+        self.prev_linear_vel = 0.0
         self.battery_consumed_this_step = 0.0
         
         # Delivery tracking
@@ -407,13 +408,14 @@ class AckermannCityEnv(Node):
              self.battery.update(np.array([pos.x, pos.y, pos.z]), self.current_step_velocity, dt=0.1)
              self.battery_consumed_this_step = max(0.0, old_level - self.battery.get_battery_level())
         
-        # Compute Reward (pass current angular vel for smoothness calc)
-        reward, reward_info = self.compute_reward(angular_vel)
+        # Compute Reward (pass current actions for smoothness calc)
+        reward, reward_info = self.compute_reward(linear_vel, angular_vel)
         self.episode_cumulative_reward += reward
         self.training_cumulative_reward += reward
         
         # Update previous action for next step
         self.prev_angular_vel = angular_vel
+        self.prev_linear_vel = linear_vel
         
         # Check Termination
         terminated, truncated = self.check_termination()
@@ -577,7 +579,7 @@ class AckermannCityEnv(Node):
         
         return obs
     
-    def compute_reward(self, current_angular_vel: float = 0.0) -> Tuple[float, Dict[str, float]]:
+    def compute_reward(self, current_linear_vel: float = 0.0, current_angular_vel: float = 0.0) -> Tuple[float, Dict[str, float]]:
         reward = 0.0
         info = {}
         
@@ -593,11 +595,21 @@ class AckermannCityEnv(Node):
         reward += energy_penalty
         info['reward_efficiency'] = energy_penalty
 
-        # 2. Smoothness/Stability (Minimize Aggressive Steering)
-        # Penalize rapid changes in steering (jerk) to prevent instability
+        # 2. Smoothness/Stability (Minimize Aggressive Steering & Acceleration)
+        # Penalize rapid changes in steering or velocity (jerk) to prevent instability/damage to load
         steering_jerk = abs(current_angular_vel - self.prev_angular_vel)
-        if steering_jerk > 0.2: # Threshold for "aggressive"
-             smoothness_penalty = -0.5 * steering_jerk
+        accel_jerk = abs(current_linear_vel - self.prev_linear_vel)
+        
+        smoothness_penalty = 0.0
+        # Lateral stability
+        if steering_jerk > 0.2: 
+             smoothness_penalty -= 0.5 * steering_jerk
+        
+        # Longitudinal stability (Sudden braking/acceleration)
+        if accel_jerk > 0.5:
+             smoothness_penalty -= 0.5 * accel_jerk
+
+        if smoothness_penalty < 0:
              reward += smoothness_penalty
              info['penalty_aggressive_change'] = smoothness_penalty
 
