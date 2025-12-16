@@ -19,3 +19,7 @@ ackermann_drl/logs/
 **/build/
 **/install/
 **/log/
+
+# Maps folder - allow JSON files to be committed (repository is self-contained)
+maps/*
+!maps/*.json
