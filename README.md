@@ -1,47 +1,76 @@
 ## Requirements
-This repository must be run **inside the provided Docker container**. All dependencies (ROS 2 Jazzy or Humble, Nav2, RViz2, `ros-gz`, Gazebo Sim Harmonic, etc.) are preinstalled in the container. 
 
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/) are required on your host system.
-- **Do not install ROS or Gazebo directly on your host.** All interaction should be through the terminal inside the running container.
+This repository is **completely self-contained** - all map files and dependencies are included. Simply clone and run inside the provided Docker container.
+
+**System Requirements:**
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/) installed on your host system
+- **Do not install ROS or Gazebo directly on your host** - all interaction is through the Docker container terminal
+
+**What's Included:**
+- All required map files (`maps/` folder with edges.json, map.json, road_polygons_merged.json, route_goals.json)
+- Complete DRL training system
+- ROS 2 workspace with all packages
+- Docker configuration ready to use
+- **No external dependencies needed** - everything works out of the box
 
 ## Cloning
 
+This repository is **self-contained** - all required map files are included. Simply clone and run:
+
 ```bash
-mkdir -p ~/ackermann_sim/src
-cd ~/ackermann_sim/src
-git clone https://github.com/umakossiooo/ackermann-simulation.git
-cd ..
+git clone https://github.com/umakossiooo/ackermann-simulation.git ackermann-vehicle-gzsim-ros2
+cd ackermann-vehicle-gzsim-ros2
 ```
 
-## Repository setup on the local
-- mkdir -p ~/ackermann_sim/src && cd ~/ackermann_sim/src
-- git clone https://github.com/umakossiooo/ackermann-simulation.git
+**No external dependencies needed** - all map files (edges.json, map.json, road_polygons_merged.json, route_goals.json) are included in the `maps/` folder.
 
 ## Docker Workflow
-- Allow the container to use your display (WSLg/X11):
-  ```bash
-  xhost +si:localuser:root
-  ```
-- Start the software-rendered stack (stable under WSLg):
-  ```bash
-  docker compose up --build ackermann_sim
-  ```
-- Clean up orphan containers (if you see warnings about removed services):
-  ```bash
-  docker compose down --remove-orphans
-  ```
-- Open a shell inside the container:
-  ```bash
-  docker compose exec ackermann_sim bash
-  ```
-- Build with symlinks so edits show up immediately and source the environment every shell:
-  ```bash
-  colcon build --symlink-install
-  source /opt/ros/jazzy/setup.bash
-  source /root/colcon_ws/install/setup.bash
-  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-  export ROS_DISABLE_SHARED_MEMORY=1
-  ```
+
+**IMPORTANT:** All commands must be run **inside the Docker container** from `/root/colcon_ws` directory.
+
+### Setup Steps
+
+1. **Allow the container to use your display (WSLg/X11):**
+   ```bash
+   xhost +si:localuser:root
+   ```
+
+2. **Start the Docker container:**
+   ```bash
+   cd ackermann-vehicle-gzsim-ros2
+   docker compose up --build ackermann_sim
+   ```
+
+3. **Open a shell inside the container:**
+   ```bash
+   docker compose exec ackermann_sim bash
+   ```
+   You'll be in `/root/colcon_ws` (the workspace root).
+
+4. **Build and source the environment (inside container):**
+   ```bash
+   # Build workspace (first time only)
+   colcon build --symlink-install
+   
+   # Source ROS 2 and workspace (do this every time you open a new terminal)
+   source /opt/ros/jazzy/setup.bash
+   source /root/colcon_ws/install/setup.bash
+   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+   export ROS_DISABLE_SHARED_MEMORY=1
+   ```
+
+5. **Verify setup (all files accessible):**
+   ```bash
+   # Check maps folder (should contain 4 JSON files)
+   ls src/ackermann-vehicle-gzsim-ros2/maps/
+   # Should see: edges.json, map.json, road_polygons_merged.json, route_goals.json
+   
+   # Verify repository structure
+   ls src/ackermann-vehicle-gzsim-ros2/
+   # Should see: ackermann_drl/, saye_bringup/, maps/, etc.
+   ```
+
+**Important:** This repository is **completely self-contained**. All map files are included in the `maps/` folder. No external repositories or dependencies are needed.
 
 ## Ackermann Steering Vehicle Simulation (ROS 2 + Gazebo Sim Harmonic)
 
@@ -95,8 +124,9 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 #### Method 1 (Recommended): Using the Provided Script
 ```bash
-python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/save_map.py \
-  /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
+# Inside container, from /root/colcon_ws
+python3 src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/save_map.py \
+  src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
 ```
 
 #### Method 2: Using the Map Saver Service
@@ -106,14 +136,16 @@ ros2 service list | grep map_saver
 ```
 Then call the service:
 ```bash
+# Inside container, from /root/colcon_ws
 ros2 service call /map_saver/save_map nav2_msgs/srv/SaveMap \
-  "{map_url: '/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map'}"
+  "{map_url: 'src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map'}"
 ```
 
 #### Method 3: Using map_saver_cli
 ```bash
+# Inside container, from /root/colcon_ws
 ros2 run nav2_map_server map_saver_cli \
-  -f /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
+  -f src/ackermann-vehicle-gzsim-ros2/saye_bringup/maps/bari_map
 ``` 
 
 ---
@@ -125,7 +157,8 @@ ros2 run nav2_map_server map_saver_cli \
 Run the Dijkstra path planner for autonomous navigation within road boundaries:
 
 ```bash
-python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/dijkstra_path_planner.py
+# Inside container, from /root/colcon_ws
+python3 src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/dijkstra_path_planner.py
 ```
 
 ### A* Path Planning
@@ -133,20 +166,32 @@ python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/pa
 Run the A* path planner for autonomous navigation (potentially faster than Dijkstra):
 
 ```bash
-python3 /root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/astar_path_planner.py
+# Inside container, from /root/colcon_ws
+python3 src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning/astar_path_planner.py
 ```
 
 **Prerequisites (both planners):**
 - Gazebo simulation must be running (launch with `ros2 launch saye_bringup saye_spawn.launch.py gui:=true`)
-- Map files must be available (edges.json, map.json, and optionally road_polygons_merged.json)
+- Map files are automatically loaded from `src/ackermann-vehicle-gzsim-ros2/maps/` (included in repository)
 
 **Note:** The goal position can be modified in the script by editing the `goal` variable in the `__main__` section.
 
 ### Path Visualization
 
-To verify that both algorithms produce the same optimal path and visualize it on a static map, execute this command inside the container:
+To verify that both algorithms produce the same optimal path and visualize it on a static map:
 
 ```bash
+# Inside container, from /root/colcon_ws
+cd src/ackermann-vehicle-gzsim-ros2/saye_bringup/scripts/path_planning
+source /opt/ros/jazzy/setup.bash
+source /root/colcon_ws/install/setup.bash
+python3 visualize_path.py
+```
+
+The visualization image will be saved in the current directory as `path_visualization.png`.
+
+---
+
 ## DRL Training (PPO)
 
 **Important:** Before starting, ensure the simulation is running:
@@ -155,9 +200,14 @@ ros2 launch saye_bringup saye_spawn.launch.py gui:=true
 ```
 
 ### 1. Start Training (New Session)
-This starts a new agent from scratch.
+
+**IMPORTANT:** Run from `/root/colcon_ws` inside the container after sourcing the environment.
+
+This starts a new agent from scratch:
 ```bash
+# Inside container, from /root/colcon_ws
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py
+# Or with specific timesteps:
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py --total-timesteps 100000
 ```
 
