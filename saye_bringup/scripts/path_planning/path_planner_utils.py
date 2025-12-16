@@ -56,7 +56,7 @@ ROUTE_GOALS = [
 
 
 def find_maps_directory() -> Path:
-    """Find the map2gazebo maps directory.
+    """Find the maps directory (local maps folder in repository).
     
     Returns:
         Path to maps directory
@@ -65,16 +65,24 @@ def find_maps_directory() -> Path:
         FileNotFoundError: If maps directory not found
     """
     candidate_paths = [
-        Path('/root/colcon_ws/src/map2gazebo/maps'),  # Current mount location
-        Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/map2gazebo_maps'),  # Alternative
-        Path('/home/studente/ackermann_sim/src/map2gazebo/maps'),  # Host path
+        # Path 1: Local maps folder in repository (PREFERRED - self-contained)
+        Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/maps'),
+        # Path 2: Alternative location (backward compatibility)
+        Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/map2gazebo_maps'),
+        # Path 3: External map2gazebo (fallback for old setups)
+        Path('/root/colcon_ws/src/map2gazebo/maps'),
+        # Path 4: Host path (if mounted differently)
+        Path('/home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/maps'),
     ]
     
     for path in candidate_paths:
         if (path / 'edges.json').exists() and (path / 'map.json').exists():
             return path
     
-    raise FileNotFoundError("Map files not found! Check docker-compose mount.")
+    raise FileNotFoundError(
+        "Map files not found! Expected maps/ folder in repository with edges.json and map.json. "
+        "Check that maps folder exists in ackermann-vehicle-gzsim-ros2/maps/"
+    )
 
 
 def wait_for_odometry(node, max_wait_time: float = 10.0):

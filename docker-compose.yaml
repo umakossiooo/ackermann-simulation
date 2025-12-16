@@ -19,8 +19,9 @@ x-ackermann-service: &ackermann_service
 x-shared-volumes: &shared_volumes
   - /tmp/.X11-unix:/tmp/.X11-unix:rw
   - /run/user:/run/user:ro
-  - /home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2:/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2
-  - /home/studente/ackermann_sim/src/map2gazebo/maps:/root/colcon_ws/src/map2gazebo/maps:ro
+  # Mount the entire repository (includes maps folder and all files)
+  # ${PWD} is the directory where docker-compose.yaml is located
+  - ${PWD}:/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2
 
 services:
   ackermann_sim:
