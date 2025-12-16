@@ -45,9 +45,9 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
     print(f"Loading model from {model_path}...")
     try:
         model = PPO.load(model_path)
-        print("✓ Model loaded successfully")
+        print("Model loaded successfully")
     except Exception as e:
-        print(f"✗ Failed to load model: {e}")
+        print(f"Failed to load model: {e}")
         raise
     
     # Create environment
@@ -266,7 +266,7 @@ def main():
     # Check if model file exists
     model_path = Path(args.model_path)
     if not model_path.exists():
-        print(f"✗ Model file not found: {model_path}")
+        print(f"Model file not found: {model_path}")
         return 1
     
     # Initialize ROS 2
@@ -301,7 +301,7 @@ def main():
     finally:
         # Cleanup
         if rclpy.ok():
-        rclpy.shutdown()
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
