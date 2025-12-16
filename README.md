@@ -1,6 +1,6 @@
 ## Requirements
 
-This repository is **completely self-contained** - all map files and dependencies are included. Simply clone and run inside the provided Docker container.
+This repository is **completely self-contained** - all map files and dependencies are included. Simply clone the `single_drl` branch and run inside the provided Docker container.
 
 **System Requirements:**
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/) installed on your host system
@@ -15,11 +15,12 @@ This repository is **completely self-contained** - all map files and dependencie
 
 ## Cloning
 
-This repository is **self-contained** - all required map files are included. Simply clone and run:
+**IMPORTANT:** This repository uses the `single_drl` branch which contains all the working code. Make sure to checkout this branch after cloning.
 
 ```bash
 git clone https://github.com/umakossiooo/ackermann-simulation.git ackermann-vehicle-gzsim-ros2
 cd ackermann-vehicle-gzsim-ros2
+git checkout single_drl
 ```
 
 **No external dependencies needed** - all map files (edges.json, map.json, road_polygons_merged.json, route_goals.json) are included in the `maps/` folder.
