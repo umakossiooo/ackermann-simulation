@@ -19,25 +19,12 @@ class AckermannGymEnv(gym.Env):
     by providing a standard Gymnasium interface.
     """
     
-    def __init__(self, node_name: str = 'ackermann_drl_env'):
-        """Initialize the Gymnasium wrapper.
-        
-        Args:
-            node_name: Name for the ROS 2 node
-        """
+    def __init__(self):
+        """Initialize the Gymnasium wrapper."""
         super().__init__()
         
-        # Initialize ROS 2 if not already initialized
-        # CRITICAL: Only initialize once globally, don't re-initialize if already done
-        try:
-            if not rclpy.ok():
-                rclpy.init()
-        except Exception as e:
-            # If init fails, context might already exist - try to continue
-            pass
-        
         # Create the ROS 2 environment
-        self.env = AckermannCityEnv(node_name=node_name)
+        self.env = AckermannCityEnv()
         
         # Define action space: [linear_velocity, angular_velocity]
         # Linear velocity: -2.0 to 2.0 m/s (forward and reverse)
@@ -64,18 +51,8 @@ class AckermannGymEnv(gym.Env):
         )
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
-        """Reset the environment.
-        
-        Args:
-            seed: Random seed (not used, but required by Gymnasium)
-            options: Additional options (not used)
-            
-        Returns:
-            Tuple of (observation, info)
-        """
-        obs = self.env.reset()
-        info = {}
-        return obs, info
+        """Reset the environment."""
+        return self.env.reset(seed=seed, options=options)
     
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         """Execute one step in the environment.
@@ -92,22 +69,12 @@ class AckermannGymEnv(gym.Env):
     def close(self):
         """Close the environment."""
         try:
-            # Stop the car before closing to prevent it from continuing to move
-            self.env.stop()
-            # Give it a moment to process the stop command
+            # Stop the car before closing
+            self.env.ros.publish_cmd_vel(0.0, 0.0)
             import time
             time.sleep(0.2)
-            # Spin a few times to ensure stop command is processed
-            for _ in range(5):
-                try:
-                    self.env.spin_once(timeout_sec=0.01)
-                except:
-                    pass
-            self.env.destroy_node()
-            # DON'T shutdown ROS context here - it's shared globally
-            # Let the training script handle shutdown
-        except Exception as e:
-            # Silently ignore errors during cleanup
+            self.env.close()
+        except Exception:
             pass
     
     def render(self, mode: str = 'human'):
