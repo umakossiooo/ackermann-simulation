@@ -11,7 +11,7 @@ class DeliveryManager:
         self.current_goal_idx = 0
         self.delivery_start_time = None
         self.delivery_deadline = 60.0
-        self.current_load_weight = 0.0
+        self.current_load_weight = 0.0 
         self.has_active_mission = False
 
     def reset(self):
@@ -23,7 +23,7 @@ class DeliveryManager:
     def start_new_mission(self):
         self.delivery_start_time = time.time()
         self.has_active_mission = True
-        self.current_load_weight = np.random.uniform(0.0, 50.0)
+        self.current_load_weight = np.random.uniform(0.0, 50.0) 
 
     def get_current_goal(self):
         return self.delivery_points[self.current_goal_idx]

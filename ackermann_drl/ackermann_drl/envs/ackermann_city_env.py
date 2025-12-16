@@ -61,7 +61,6 @@ class AckermannCityEnv(gym.Env):
         initial_dist = np.linalg.norm(np.array(pos[:2]) - np.array(goal[:2]))
         self.reward_system.prev_dist_to_goal = initial_dist
         
-        # Build info for reset
         info = {
             'road_dist': self.navigation.get_road_distance(pos[0], pos[1]),
             'battery': self.battery.get_battery_level(),
@@ -79,10 +78,13 @@ class AckermannCityEnv(gym.Env):
         return self._build_obs(), info
 
     def step(self, action):
+        """Execute one step: apply action, get sensors, compute reward."""
         self.steps += 1
+        
         action = np.asarray(action, dtype=np.float32).flatten()
         if len(action) < 2:
             action = np.pad(action, (0, 2 - len(action)), 'constant', constant_values=0.0)
+        
         self.current_linear_vel = float(action[0])
         self.current_angular_vel = float(action[1]) if len(action) > 1 else 0.0
         self.ros.publish_cmd_vel(self.current_linear_vel, self.current_angular_vel)
@@ -156,6 +158,7 @@ class AckermannCityEnv(gym.Env):
             time.sleep(0.1)
 
     def _build_obs(self):
+        """Build observation vector: [LiDAR(180), velocity(2), target(3), battery(1), CTE(1)] = 187."""
         obs = np.zeros(187, dtype=np.float32)
         
         scan = self.ros.get_scan()
@@ -183,6 +186,7 @@ class AckermannCityEnv(gym.Env):
         return obs
 
     def _to_relative(self, target):
+        """Convert target position from world frame to robot frame."""
         odom = self.ros.get_odom()
         if not odom:
             return 0.0, 0.0, 0.0

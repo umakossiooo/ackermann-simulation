@@ -32,7 +32,7 @@ class RewardLogger(BaseCallback):
                      'penalty_battery_conservation', 'penalty_efficiency',
                      'penalty_delivery_late', 'penalty_offroad', 'penalty_collision',
                      'penalty_aggressive_change', 'penalty_time', 'penalty_path_deviation']
-
+    
     def _on_step(self):
         self.step_count += 1
         infos = self.locals.get("infos", [])
@@ -71,10 +71,8 @@ class RewardLogger(BaseCallback):
                 for k in self.keys:
                     val = sums[k] / count
                     if 'reward' in k:
-                        # Rewards: show + for positive, 0 for zero
                         fmt_val = f"{val:+.6f}" if val != 0.0 else " 0.000000"
                     else:
-                        # Penalties: show - for negative, 0 for zero (no + sign)
                         fmt_val = f"{val:.6f}" if val < 0.0 else " 0.000000"
                     print(f"  {'[+]' if 'reward' in k else '[-]'} {k:25s}: {fmt_val}", flush=True)
                 total = sum(sums[k]/count for k in self.keys)
@@ -104,7 +102,7 @@ def stop_robot(env, vec_env):
     
     try:
         for _ in range(3):
-            subprocess.run(['ros2', 'topic', 'pub', '--once', '/cmd_vel', 'geometry_msgs/msg/Twist',
+            subprocess.run(['ros2', 'topic', 'pub', '--once', '/cmd_vel', 'geometry_msgs/msg/Twist', 
                           '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'],
                          timeout=1.0, check=False, capture_output=True)
             time.sleep(0.2)

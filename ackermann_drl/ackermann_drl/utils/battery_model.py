@@ -1,11 +1,7 @@
 """Battery model for energy consumption tracking.
 
-MUST RUN INSIDE DOCKER CONTAINER.
-
-Implements battery model with:
-- battery_level ∈ [0,1] (normalized)
-- drop = (α*(distance) + β*|Δv|) * weight_factor (energy consumption formula)
-- weight_factor accounts for vehicle mass (heavier = more energy consumption)
+Energy consumption: drop = (α*distance + β*|Δv|) * weight_factor
+where α = distance coefficient, β = velocity change coefficient.
 """
 
 from typing import Optional
@@ -13,34 +9,19 @@ import numpy as np
 
 
 class BatteryModel:
-    """Battery model for tracking energy consumption.
+    """Tracks battery level [0,1] based on distance traveled and velocity changes.
     
-    Battery level is normalized to [0,1] range.
-    Energy consumption: drop = (α*(distance) + β*|Δv|) * weight_factor
-    where:
-    - α: distance coefficient (energy per meter)
-    - β: velocity change coefficient (energy per m/s change)
-    - weight_factor: vehicle weight multiplier (default: 1.0 for 1000kg reference)
-    - distance: distance traveled since last update
-    - Δv: change in velocity magnitude
+    Energy consumption increases with distance and sudden velocity changes.
+    Heavier vehicles consume more energy.
     """
     
     def __init__(self, 
                  initial_level: float = 1.0,
-                 alpha: float = 0.001,  # Energy per meter (α)
-                 beta: float = 0.01,   # Energy per m/s velocity change (β)
-                 idle_drain: float = 0.0005, # Idle drain per second
-                 vehicle_weight: float = 1000.0):  # Vehicle weight in kg
-        """Initialize battery model.
-        
-        Args:
-            initial_level: Initial battery level [0,1] (default: 1.0 = 100%)
-            alpha: Distance coefficient - energy consumed per meter traveled (default: 0.001)
-            beta: Velocity change coefficient - energy consumed per m/s velocity change (default: 0.01)
-            idle_drain: Energy consumed per second even when stopped (default: 0.0005)
-            vehicle_weight: Vehicle weight in kilograms (default: 1000.0 kg)
-                          Used to scale energy consumption (heavier = more energy)
-        """
+                 alpha: float = 0.001,
+                 beta: float = 0.01,
+                 idle_drain: float = 0.0005,
+                 vehicle_weight: float = 1000.0):
+        """Initialize battery model with energy consumption parameters."""
         self.initial_level = np.clip(initial_level, 0.0, 1.0)
         self.battery_level = self.initial_level
         self.alpha = alpha
@@ -48,14 +29,9 @@ class BatteryModel:
         self.idle_drain = idle_drain
         self.vehicle_weight = vehicle_weight
         
-        # Reference weight for normalization (1000 kg = factor of 1.0)
         self.reference_weight = 1000.0
-        
-        # Weight factor: heavier vehicles consume more energy
-        # Linear scaling: weight_factor = vehicle_weight / reference_weight
         self.weight_factor = self.vehicle_weight / self.reference_weight
         
-        # Track previous state for Δv calculation
         self.prev_velocity: Optional[float] = None
         self.prev_position: Optional[np.ndarray] = None
         self.last_energy_drop = 0.0
@@ -64,18 +40,10 @@ class BatteryModel:
                position: np.ndarray, 
                velocity: float, 
                dt: float = 0.1):
-        """Update battery level based on distance traveled and velocity change.
-        
-        Args:
-            position: Current position [x, y] or [x, y, z] (meters)
-            velocity: Current velocity magnitude (m/s)
-            dt: Time step (seconds) - used for validation, not in formula
-        """
-        # Calculate distance traveled
+        """Update battery level based on distance traveled and velocity change."""
         distance = 0.0
         if self.prev_position is not None:
-            # Calculate Euclidean distance
-            pos_array = np.array(position[:2])  # Use only x, y for 2D distance
+            pos_array = np.array(position[:2])
             prev_pos_array = np.array(self.prev_position[:2])
             distance = np.linalg.norm(pos_array - prev_pos_array)
         
