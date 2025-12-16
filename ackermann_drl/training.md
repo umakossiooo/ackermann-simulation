@@ -21,7 +21,7 @@ docker compose exec ackermann_sim bash
 
 ### Step 2: Start Gazebo (REQUIRED - must run in background)
 
-**⚠️ IMPORTANT:** Gazebo MUST be running before you start training!
+**IMPORTANT:** Gazebo MUST be running before you start training!
 
 **Option A: Background process (RECOMMENDED for training)**
 
@@ -71,7 +71,7 @@ ros2 topic echo /odom --once  # Should show odometry data
 ros2 topic echo /scan --once  # Should show laser scan data
 ```
 
-**⚠️ If topics are empty or missing, Gazebo is not running!**
+**WARNING: If topics are empty or missing, Gazebo is not running!**
 
 ### Step 4: Start Training (in the same terminal as Step 3)
 

@@ -158,6 +158,7 @@ ros2 launch saye_bringup saye_spawn.launch.py gui:=true
 This starts a new agent from scratch.
 ```bash
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py
+python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py --total-timesteps 100000
 ```
 
 ### 2. Reset Training (Delete All History)
@@ -170,8 +171,7 @@ rm -rf src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/*
 ### 3. Resume Training (From Saved Checkpoint)
 Use `Ctrl+C` to pause training safely. To resume:
 ```bash
-python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py \
-  --load-model src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/ppo_ackermann_interrupted.zip
+python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py --total-timesteps 100000 --load-model src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/ppo_ackermann_interrupted.zip
 ```
 
 ### 4. Monitor Training

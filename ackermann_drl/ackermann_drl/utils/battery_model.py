@@ -58,6 +58,7 @@ class BatteryModel:
         # Track previous state for Δv calculation
         self.prev_velocity: Optional[float] = None
         self.prev_position: Optional[np.ndarray] = None
+        self.last_energy_drop = 0.0
     
     def update(self, 
                position: np.ndarray, 
@@ -88,6 +89,7 @@ class BatteryModel:
         base_energy_drop = self.alpha * distance + self.beta * delta_v
         idle_energy_drop = self.idle_drain * dt
         energy_drop = (base_energy_drop * self.weight_factor) + idle_energy_drop
+        self.last_energy_drop = energy_drop
         
         # Update battery level (decrease by energy drop)
         self.battery_level = np.clip(self.battery_level - energy_drop, 0.0, 1.0)
