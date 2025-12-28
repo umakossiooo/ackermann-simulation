@@ -40,9 +40,12 @@ class AckermannCityEnv(gym.Env):
         self.collision_threshold = 0.8
         self.offroad_threshold = 1.5
         self.goal_threshold = 2.0
+        self.safe_distance = 2.0  # threshold for obstacle proximity
         self.steps = 0
         self.current_linear_vel = 0.0
         self.current_angular_vel = 0.0
+        self.prev_vel = 0.0  # previous velocity for acceleration calculation
+        self.dt = 0.1  # seconds - time step for acceleration
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -50,6 +53,7 @@ class AckermannCityEnv(gym.Env):
         self.delivery.reset()
         self.battery.reset()
         self.reward_system.reset(0.0)
+        self.prev_vel = 0.0
         
         self.reset_pub.publish(Bool(data=True))
         time.sleep(0.5)
@@ -94,6 +98,16 @@ class AckermannCityEnv(gym.Env):
         pos = self._get_position()
         vel = np.sqrt(odom.twist.twist.linear.x**2 + odom.twist.twist.linear.y**2) if odom else 0.0
         
+        # Calculate physical acceleration (m/s^2)
+        if not np.isfinite(vel):
+            vel = 0.0
+        if not np.isfinite(self.prev_vel):
+            self.prev_vel = 0.0
+        
+        acceleration = (vel - self.prev_vel) / self.dt
+        acceleration = np.clip(acceleration, -20.0, 20.0)  # clamp to ±20 m/s^2
+        self.prev_vel = vel
+        
         load = self.delivery.get_mission_status()['load_weight']
         self.battery.set_vehicle_weight(1000.0 + load)
         self.battery.update(np.array([pos[0], pos[1]]), vel)
@@ -102,6 +116,30 @@ class AckermannCityEnv(gym.Env):
         road_dist = self.navigation.get_road_distance(pos[0], pos[1])
         offroad_collision = road_dist > self.offroad_threshold
         collision = lidar_collision or offroad_collision
+        
+        # Calculate obstacle proximity: combines LiDAR and road distance
+        # Considers both physical obstacles (LiDAR) and road boundaries (sidewalks, curbs)
+        if not np.isfinite(min_lidar) or min_lidar < 0:
+            min_lidar = self.safe_distance
+        if not np.isfinite(road_dist) or road_dist < 0:
+            road_dist = 0.0
+        
+        # LiDAR proximity: normalized [0, 1] where 1 = very close
+        if min_lidar < self.safe_distance:
+            lidar_proximity = (self.safe_distance - min_lidar) / self.safe_distance
+        else:
+            lidar_proximity = 0.0
+        
+        # Road distance proximity: normalized [0, 1] where 1 = far from road (on sidewalk/obstacle)
+        # Use offroad_threshold as max distance for normalization
+        if road_dist > 0.0:
+            road_proximity = min(road_dist / self.offroad_threshold, 1.0)
+        else:
+            road_proximity = 0.0
+        
+        # Combine both: take maximum (worst case) to ensure we penalize any proximity to obstacles
+        obstacle_proximity = max(lidar_proximity, road_proximity)
+        obstacle_proximity = np.clip(obstacle_proximity, 0.0, 1.0)
         
         goal_reached = self.delivery.check_goal_reached(pos[:2], self.goal_threshold)
         if goal_reached:
@@ -121,7 +159,9 @@ class AckermannCityEnv(gym.Env):
             battery_level=self.battery.get_battery_level(),
             mission_status=self.delivery.get_mission_status(),
             current_vel=(self.current_linear_vel, self.current_angular_vel),
-            goal_reached=goal_reached
+            goal_reached=goal_reached,
+            acceleration=acceleration,
+            obstacle_proximity=obstacle_proximity
         )
         
         terminated = collision

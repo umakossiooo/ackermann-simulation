@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, Tuple
+from typing import Dict
 
 
 class RewardSystem:
@@ -14,18 +14,19 @@ class RewardSystem:
     
     def __init__(self):
         # Reward weights (positive = reward, negative = penalty)
-        self.w_progress = 4.0  # Reward for moving toward goal
-        self.w_goal = 100.0  # Large reward for reaching goal
-        self.w_collision = -50.0  # Heavy penalty for collisions
-        self.w_offroad = -1.0  # Penalty for driving off roads
-        self.w_path_deviation = -0.5  # Penalty for deviating from planned path
-        self.w_energy = -30.0  # Penalty for energy consumption
-        self.w_battery_conservation = -0.1  # Penalty for low battery
-        self.w_time = -0.01  # Small time penalty per step
-        self.w_delivery_late = -0.5  # Penalty for late delivery
-        self.w_aggressive = -0.3  # Penalty for sudden velocity changes
+        self.w_progress = 4.0
+        self.w_goal = 100.0
+        self.w_collision = -50.0
+        self.w_offroad = -1.0
+        self.w_path_deviation = -0.5
+        self.w_energy = -30.0
+        self.w_battery_conservation = -0.1
+        self.w_time = -0.01
+        self.w_delivery_late = -0.5
+        self.w_aggressive = -0.3
+        self.w_acceleration = -2.0
+        self.w_obstacle_proximity = -5.0
         
-        # Track previous state for computing progress and jerk
         self.prev_dist_to_goal = None
         self.prev_linear_vel = 0.0
         self.prev_angular_vel = 0.0
@@ -36,11 +37,12 @@ class RewardSystem:
         self.prev_angular_vel = 0.0
 
     def compute_reward(self, current_dist_to_goal, is_collision, road_dist, cross_track_error,
-                      battery_consumed, battery_level, mission_status, current_vel, goal_reached):
+                      battery_consumed, battery_level, mission_status, current_vel, goal_reached,
+                      acceleration, obstacle_proximity):
         reward = 0.0
         info = {}
         
-        # Progress reward: positive if getting closer to goal
+        # Progress reward
         if self.prev_dist_to_goal is not None:
             progress = self.prev_dist_to_goal - current_dist_to_goal
             reward += self.w_progress * progress
@@ -49,7 +51,7 @@ class RewardSystem:
             info['reward_progress'] = 0.0
         self.prev_dist_to_goal = current_dist_to_goal
         
-        # Path deviation penalty: penalize if too far from planned path
+        # Path deviation penalty
         if cross_track_error > 1.5:
             penalty = self.w_path_deviation * (cross_track_error ** 1.5)
             reward += penalty
@@ -57,7 +59,7 @@ class RewardSystem:
         else:
             info['penalty_path_deviation'] = 0.0
         
-        # Off-road penalty: penalize driving away from road centerlines
+        # Off-road penalty
         if road_dist > 0.0:
             penalty = self.w_offroad * road_dist
             reward += penalty
@@ -65,21 +67,34 @@ class RewardSystem:
         else:
             info['penalty_offroad'] = 0.0
         
-        # Energy efficiency: penalize energy consumption
+        # Energy and battery penalties
         reward += self.w_energy * battery_consumed
         info['penalty_efficiency'] = self.w_energy * battery_consumed
-        
-        # Battery conservation: penalize low battery levels
         reward += self.w_battery_conservation * (1.0 - battery_level)
         info['penalty_battery_conservation'] = self.w_battery_conservation * (1.0 - battery_level)
         
-        # Aggressive change penalty: penalize sudden velocity changes (jerk)
+        # Acceleration penalty (quadratic)
+        if not np.isfinite(acceleration):
+            acceleration = 0.0
+        penalty_acc = self.w_acceleration * (acceleration ** 2)
+        reward += penalty_acc
+        info['penalty_acceleration'] = penalty_acc
+        
+        # Obstacle proximity penalty
+        if not np.isfinite(obstacle_proximity):
+            obstacle_proximity = 0.0
+        obstacle_proximity = np.clip(obstacle_proximity, 0.0, 1.0)
+        penalty_obst = self.w_obstacle_proximity * obstacle_proximity
+        reward += penalty_obst
+        info['penalty_obstacle_proximity'] = penalty_obst
+        
+        # Aggressive change penalty (jerk)
         accel_jerk = abs(current_vel[0] - self.prev_linear_vel)
         steer_jerk = abs(current_vel[1] - self.prev_angular_vel)
         penalty = 0.0
-        if accel_jerk > 0.7:  # Threshold for acceleration jerk
+        if accel_jerk > 0.7:  # threshold
             penalty += self.w_aggressive * accel_jerk
-        if steer_jerk > 0.3:  # Threshold for steering jerk
+        if steer_jerk > 0.3:  # threshold
             penalty += self.w_aggressive * steer_jerk
         reward += penalty
         info['penalty_aggressive_change'] = penalty
