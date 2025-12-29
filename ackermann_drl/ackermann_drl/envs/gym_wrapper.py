@@ -3,7 +3,8 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from typing import Tuple, Dict, Any, Optional
+import time
+from typing import Tuple, Dict, Optional
 import rclpy
 from ackermann_drl.envs.ackermann_city_env import AckermannCityEnv
 
@@ -42,7 +43,6 @@ class AckermannGymEnv(gym.Env):
         """Stop vehicle and close environment."""
         try:
             self.env.ros.publish_cmd_vel(0.0, 0.0)
-            import time
             time.sleep(0.2)
             self.env.close()
         except Exception:
