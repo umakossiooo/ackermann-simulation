@@ -6,9 +6,9 @@ delivery_points:
   - id: 0
     name: "delivery_point_0"
     position:
-      east: 200.0
-      north: 50.0
+      east: -212.0
+      north: -122.5
       up: 0.0
-    description: "First delivery point"
+    description: "First delivery point (Parking Aisle)"
     deadline_seconds: 120.0  # Must deliver within 120 seconds (2 minutes)
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 import random
+from shapely.geometry import Point
 
 
 class DeliveryPoints:
@@ -74,14 +75,57 @@ class DeliveryPoints:
         )
     
     def _load_delivery_points(self):
-        """Load delivery points from YAML file."""
+        """Load delivery points from YAML file and ensure they are on roads."""
         if not self.delivery_points_file.exists():
             raise FileNotFoundError(f"Delivery points file not found: {self.delivery_points_file}")
         
         with open(self.delivery_points_file, 'r') as f:
             data = yaml.safe_load(f)
         
-        self.delivery_points = data.get('delivery_points', [])
+        raw_points = data.get('delivery_points', [])
+        self.delivery_points = []
+        
+        # Validate and fix points using RoadsGeometry
+        try:
+            from ackermann_drl.utils.roads_geometry import RoadsGeometry
+            rg = RoadsGeometry()
+            
+            for point in raw_points:
+                pos = point.get('position', {})
+                x = pos.get('east', 0.0)
+                y = pos.get('north', 0.0)
+                
+                # Check if point is on road
+                dist, metadata = rg.distance_to_nearest_road(x, y)
+                width = 5.0
+                if metadata and 'width' in metadata:
+                    width = float(metadata['width'])
+                
+                half_width = width / 2.0
+                margin = 0.5  # Safety margin to be well inside
+                
+                # If distance to center is greater than half width (minus margin), it might be offroad
+                if dist > (half_width - margin):
+                    # Point is offroad or too close to edge. Project it to centerline.
+                    if metadata:
+                        polyline = metadata['polyline']
+                        p = Point(x, y)
+                        # Project to centerline
+                        projected = polyline.interpolate(polyline.project(p))
+                        x_new, y_new = projected.x, projected.y
+                        
+                        # Update point
+                        print(f"[DeliveryPoints] Correcting point {point.get('id')} from ({x:.1f}, {y:.1f}) to ({x_new:.1f}, {y_new:.1f})")
+                        if 'position' not in point:
+                            point['position'] = {}
+                        point['position']['east'] = float(x_new)
+                        point['position']['north'] = float(y_new)
+                
+                self.delivery_points.append(point)
+                
+        except Exception as e:
+            print(f"[DeliveryPoints] Warning: Could not validate points against roads geometry: {e}")
+            self.delivery_points = raw_points
     
     def get_all_points(self) -> List[Dict]:
         """Get all delivery points.
