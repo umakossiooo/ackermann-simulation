@@ -32,7 +32,8 @@ class RewardLogger(BaseCallback):
                      'penalty_battery_conservation', 'penalty_efficiency',
                      'penalty_delivery_late', 'penalty_offroad', 'penalty_collision',
                      'penalty_aggressive_change', 'penalty_time', 'penalty_path_deviation',
-                     'penalty_acceleration', 'penalty_obstacle_proximity']
+                     'penalty_acceleration', 'penalty_obstacle_proximity',
+                     'penalty_lateral_accel', 'penalty_reverse']
     
     def _on_step(self):
         self.step_count += 1
