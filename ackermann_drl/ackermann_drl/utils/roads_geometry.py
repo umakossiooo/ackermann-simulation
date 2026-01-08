@@ -161,7 +161,7 @@ class RoadsGeometry:
     def get_road_heading_at_point(self, x: float, y: float) -> Tuple[float, Optional[LineString]]:
         """Get road heading at nearest point. Returns (heading in radians, polyline).
         
-        Heading: 0 = east, π/2 = north, range [-π, π].
+        Heading: 0 = east, pi/2 = north, range [-pi, pi].
         """
         if not self.roads_polylines:
             return 0.0, None

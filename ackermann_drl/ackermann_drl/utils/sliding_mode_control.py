@@ -5,7 +5,7 @@ MUST RUN INSIDE DOCKER CONTAINER.
 Implements SMC controller for following road polylines with:
 - Lateral error (distance from road)
 - Heading error (angle difference)
-- Sliding surface: s = e_y + λ * e_θ
+- Sliding surface: s = e_y + lambda * e_theta
 - Control law with boundary layer to reduce chattering
 """
 

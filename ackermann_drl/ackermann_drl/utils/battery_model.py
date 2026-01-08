@@ -1,7 +1,7 @@
 """Battery model for energy consumption tracking.
 
-Energy consumption: drop = (α*distance + β*|Δv|) * weight_factor
-where α = distance coefficient, β = velocity change coefficient.
+Energy consumption: drop = (alpha*distance + beta*|delta_v|) * weight_factor
+where alpha = distance coefficient, beta = velocity change coefficient.
 """
 
 from typing import Optional
@@ -52,7 +52,7 @@ class BatteryModel:
         if self.prev_velocity is not None:
             delta_v = abs(velocity - self.prev_velocity)
         
-        # Calculate energy drop: drop = (α*(distance) + β*|Δv|) * weight_factor + (idle * dt)
+        # Calculate energy drop: drop = (alpha*(distance) + beta*|delta_v|) * weight_factor + (idle * dt)
         # Heavier vehicles consume more energy for the same movement
         base_energy_drop = self.alpha * distance + self.beta * delta_v
         idle_energy_drop = self.idle_drain * dt
