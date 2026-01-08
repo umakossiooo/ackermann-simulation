@@ -16,7 +16,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     # Setup project paths
     pkg_project_bringup = get_package_share_directory('saye_bringup')
-    pkg_project_localization = get_package_share_directory('saye_localization')
+    # pkg_project_localization = get_package_share_directory('saye_localization')
     pkg_project_description = get_package_share_directory('saye_description')
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
 
@@ -89,7 +89,8 @@ def generate_launch_description():
        package='rviz2',
        executable='rviz2',
        arguments=['-d', os.path.join(pkg_project_bringup, 'rviz', 'saye.rviz')],
-       condition=IfCondition(LaunchConfiguration('rviz'))
+       condition=IfCondition(LaunchConfiguration('rviz')),
+       parameters=[{'use_sim_time': True}]
     )
 
     bridge = Node(
@@ -99,6 +100,7 @@ def generate_launch_description():
         parameters=[{
             'config_file': os.path.join(pkg_project_bringup, 'config', 'ros_gz_bridge.yaml'),
             'qos_overrides./tf_static.publisher.durability': 'transient_local',
+            'use_sim_time': True
         }],
         output='screen'
     )
@@ -107,7 +109,8 @@ def generate_launch_description():
         executable='robot_state_publisher',
         parameters=[
             {'robot_description': robot_description_content},
-            {'frame_prefix': 'saye/'}
+            {'frame_prefix': 'saye/'},
+            {'use_sim_time': True}
         ],
         output='screen'
     )

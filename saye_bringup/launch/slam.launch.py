@@ -127,7 +127,7 @@ def generate_launch_description():
     )
 
     # TF chain: map -> odom (from SLAM) -> saye/base_link (from odometry)
-    # Publish odom -> saye transform from odometry messages
+    # Publish odom -> saye/base_link transform from odometry messages
     installed_script = os.path.join(bringup_pkg, '..', '..', 'lib', 'saye_bringup', 'odom_to_tf.py')
     source_script = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(bringup_pkg))),
@@ -137,7 +137,7 @@ def generate_launch_description():
     odom_to_tf_node = ExecuteProcess(
         cmd=['python3', odom_script,
              '--ros-args',
-             '-p', 'base_frame:=saye',  # Publish odom -> saye (robot_state_publisher handles saye -> saye/base_link)
+             '-p', 'base_frame:=saye/base_link',
              '-p', 'odom_frame:=odom',
              '-p', 'use_sim_time:=true'],
         name='odom_to_tf',
@@ -155,7 +155,7 @@ def generate_launch_description():
     ld.add_action(declare_rviz)
     ld.add_action(spawn_sim)  # Spawn simulation and robot
     ld.add_action(slam_launch)  # Launch SLAM
-    ld.add_action(odom_to_tf_node)  # Publish odom->saye transform
+    ld.add_action(odom_to_tf_node)  # Publish odom->saye/base_link transform
     ld.add_action(map_saver)
     ld.add_action(map_saver_lifecycle)
     ld.add_action(rviz_node)

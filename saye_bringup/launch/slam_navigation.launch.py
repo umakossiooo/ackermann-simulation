@@ -149,7 +149,7 @@ def generate_launch_description():
     odom_to_tf_node = ExecuteProcess(
         cmd=['python3', odom_script,
              '--ros-args',
-             '-p', 'base_frame:=saye',  # Publish odom -> saye (robot_state_publisher handles saye -> saye/base_link)
+             '-p', 'base_frame:=saye/base_link',
              '-p', 'odom_frame:=odom',
              '-p', 'use_sim_time:=true'],  # Always true for simulation
         name='odom_to_tf',

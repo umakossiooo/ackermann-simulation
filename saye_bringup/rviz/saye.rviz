@@ -205,7 +205,7 @@ Visualization Manager:
         saye:
           Value: true
         saye/base_link:
-          Value: false
+          Value: true
         saye/base_link/camera_front:
           Value: false
         saye/base_link/camera_left:
@@ -331,7 +331,7 @@ Visualization Manager:
       Name: Current View
       Near Clip Distance: 0.009999999776482582
       Pitch: 0.24979755282402039
-      Target Frame: saye
+      Target Frame: saye/base_link
       Value: Orbit (rviz)
       Yaw: 4.133577346801758
     Saved: ~

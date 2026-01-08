@@ -21,10 +21,10 @@ class OdomToTF(Node):
             self.odom_callback,
             10
         )
-        # Publish odom -> saye (not saye/base_link) to connect with robot_state_publisher
-        # robot_state_publisher publishes saye -> saye/base_link
-        # This creates: map -> odom -> saye -> saye/base_link
-        self.base_frame = self.declare_parameter('base_frame', 'saye').value
+        # RobotStatePublisher already prefixes every link with saye/, so we feed
+        # RViz directly with odom -> saye/base_link unless a different target is
+        # explicitly requested.
+        self.base_frame = self.declare_parameter('base_frame', 'saye/base_link').value
         self.odom_frame = self.declare_parameter('odom_frame', 'odom').value
         self.get_logger().info(f'Publishing {self.odom_frame} -> {self.base_frame} from /odom topic')
         self.message_count = 0
@@ -63,4 +63,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
