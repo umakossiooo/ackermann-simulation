@@ -28,17 +28,25 @@ class AckermannCityEnv(gym.Env):
         self.reset_pub = self.ros.create_publisher(Bool, '/reset_simulation', 1)
         
         dp = DeliveryPoints()
-        delivery_points = [dp.get_point_position(point) for point in dp.get_all_points()]
-        self.delivery = DeliveryManager(delivery_points)
+        # Pass full point objects to DeliveryManager, not just positions
+        self.delivery = DeliveryManager(dp.get_all_points())
         self.navigation = NavigationSystem()
         self.reward_system = RewardSystem()
         self.battery = BatteryModel(vehicle_weight=1000.0)
+        self.load_min, self.load_max = self.delivery.get_load_range()
+        self.obs_dim = 190
+        self.max_episode_steps = 2000
+        self.deadline_grace = 0.0
+        self.last_mission_status = None
         
         self.action_space = spaces.Box(low=np.array([-1.0, -0.5]), high=np.array([3.0, 0.5]), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(187,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
+        
+        # Vehicle dimensions (approximate for collision check)
+        self.vehicle_width = 1.0  # meters
+        self.vehicle_half_width = self.vehicle_width / 2.0
         
         self.collision_threshold = 0.8
-        self.offroad_threshold = 1.5
         self.goal_threshold = 2.0
         self.safe_distance = 2.0  # threshold for obstacle proximity
         self.steps = 0
@@ -46,29 +54,34 @@ class AckermannCityEnv(gym.Env):
         self.current_angular_vel = 0.0
         self.prev_vel = 0.0  # previous velocity for acceleration calculation
         self.dt = 0.1  # seconds - time step for acceleration
+        self.offroad_steps = 0
+        self.offroad_patience = 5  # steps tolerated off-road before aborting
+        self.offroad_buffer = 0.1  # meters - treat car as outside slightly before curb
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.steps = 0
         self.delivery.reset()
         self.battery.reset()
-        self.reward_system.reset(0.0)
         self.prev_vel = 0.0
+        self.last_mission_status = self.delivery.get_mission_status()
         
         self.reset_pub.publish(Bool(data=True))
         time.sleep(0.5)
         self._wait_for_sensors()
+        self.offroad_steps = 0
         
         pos = self._get_position()
         goal = self.delivery.get_current_goal()
-        self.navigation.plan_path(pos[:2], goal[:2])
+        if not self.navigation.plan_path(pos[:2], goal[:2]):
+            raise RuntimeError(f"[AckermannCityEnv] Failed to plan path from {pos[:2]} to {goal[:2]}")
         initial_dist = np.linalg.norm(np.array(pos[:2]) - np.array(goal[:2]))
-        self.reward_system.prev_dist_to_goal = initial_dist
+        self.reward_system.reset(initial_dist)
         
         info = {
             'road_dist': self.navigation.get_road_distance(pos[0], pos[1]),
             'battery': self.battery.get_battery_level(),
-            'load': self.delivery.get_mission_status()['load_weight'],
+            'load': self.last_mission_status['load_weight'],
             'is_collision': False,
             'is_collision_lidar': False,
             'is_collision_offroad': False,
@@ -76,7 +89,12 @@ class AckermannCityEnv(gym.Env):
             'velocity': 0.0,
             'pos_x': pos[0],
             'pos_y': pos[1],
-            'distance_to_goal': initial_dist
+            'distance_to_goal': initial_dist,
+            'mission_elapsed': self.last_mission_status['elapsed'],
+            'mission_deadline': self.last_mission_status['deadline'],
+            'mission_remaining': self.last_mission_status['remaining'],
+            'deadline_exceeded': False,
+            'goal_success': False
         }
         
         return self._build_obs(), info
@@ -108,43 +126,75 @@ class AckermannCityEnv(gym.Env):
         acceleration = np.clip(acceleration, -20.0, 20.0)  # clamp to ±20 m/s^2
         self.prev_vel = vel
         
-        load = self.delivery.get_mission_status()['load_weight']
+        self.delivery.advance_time(self.dt)
+        mission_status = self.delivery.get_mission_status()
+        self.last_mission_status = mission_status
+        load = mission_status['load_weight']
         self.battery.set_vehicle_weight(1000.0 + load)
         self.battery.update(np.array([pos[0], pos[1]]), vel)
         
         lidar_collision, min_lidar = self._check_lidar(scan)
-        road_dist = self.navigation.get_road_distance(pos[0], pos[1])
-        offroad_collision = road_dist > self.offroad_threshold
+        road_dist_center, road_width, road_dist_edge, is_offroad = self.navigation.get_road_info(pos[0], pos[1])
+        
+        # User requirement: penalize only if outside road area.
+        # We consider "offroad collision" if the vehicle body is outside the road (hitting the curb).
+        # road_dist_edge is: dist_from_center - (road_width / 2.0)
+        # Positive means center is outside. Negative means center is inside.
+        # Collision occurs if: center is outside OR (center is inside but side of car hits edge)
+        # Side of car hits edge if: dist_from_center + car_half_width > road_width / 2.0
+        # This is equivalent to: dist_edge > -self.vehicle_half_width
+        
+        # However, we want to be slightly lenient to avoid false positives on the exact boundary,
+        # but strict enough to catch the curb.
+        # If the car is hitting the banqueta (curb), it's likely at the edge.
+        offroad_margin = -self.vehicle_half_width + self.offroad_buffer
+        offroad_collision = road_dist_edge > offroad_margin
+        if road_dist_edge > 0.0:
+            self.offroad_steps += 1
+        else:
+            self.offroad_steps = 0
+        if self.offroad_steps >= self.offroad_patience:
+            offroad_collision = True
+        
         collision = lidar_collision or offroad_collision
         
-        # Calculate obstacle proximity: combines LiDAR and road distance
-        # Considers both physical obstacles (LiDAR) and road boundaries (sidewalks, curbs)
+        # Calculate obstacle proximity (LiDAR only now, road edge handled by penalty_offroad logic below)
+        # Considers both physical obstacles (LiDAR)
         if not np.isfinite(min_lidar) or min_lidar < 0:
             min_lidar = self.safe_distance
-        if not np.isfinite(road_dist) or road_dist < 0:
-            road_dist = 0.0
         
         # LiDAR proximity: normalized [0, 1] where 1 = very close
         if min_lidar < self.safe_distance:
-            lidar_proximity = (self.safe_distance - min_lidar) / self.safe_distance
+            obstacle_proximity = (self.safe_distance - min_lidar) / self.safe_distance
         else:
-            lidar_proximity = 0.0
-        
-        # Road distance proximity: normalized [0, 1] where 1 = far from road (on sidewalk/obstacle)
-        # Use offroad_threshold as max distance for normalization
-        if road_dist > 0.0:
-            road_proximity = min(road_dist / self.offroad_threshold, 1.0)
-        else:
-            road_proximity = 0.0
-        
-        # Combine both: take maximum (worst case) to ensure we penalize any proximity to obstacles
-        obstacle_proximity = max(lidar_proximity, road_proximity)
+            obstacle_proximity = 0.0
         obstacle_proximity = np.clip(obstacle_proximity, 0.0, 1.0)
         
+        # Road edge proximity / Off-road penalty logic
+        # We want to penalize when the car gets close to the edge (inside the road)
+        # road_dist_edge is negative inside the road. e.g. -2.0 means 2m inside. -0.1 means 0.1m inside.
+        # We want penalty to be high when road_dist_edge is close to -vehicle_half_width (from negative side).
+        # i.e. when we are about to hit the curb.
+        
+        dist_from_edge_contact = (-road_dist_edge) - self.vehicle_half_width
+        # If dist_from_edge_contact is positive, we are safely inside.
+        # If it is close to 0, we are close to collision.
+        
+        edge_warning_dist = 0.5
+        road_violation_dist = 0.0
+        
+        if not offroad_collision:
+            # Inside safe zone (but maybe close to edge)
+            if dist_from_edge_contact < edge_warning_dist:
+                # We map the remaining distance to a "violation distance" for the reward system
+                # 0.5m buffer -> 0.0 violation
+                # 0.0m buffer -> 1.0 violation (approx)
+                road_violation_dist = (edge_warning_dist - dist_from_edge_contact)
+        else:
+            # Outside safe zone (collision)
+            road_violation_dist = 1.0 + road_dist_edge # Just a positive value to ensure penalty
+            
         goal_reached = self.delivery.check_goal_reached(pos[:2], self.goal_threshold)
-        if goal_reached:
-            new_goal = self.delivery.get_current_goal()
-            self.navigation.plan_path(pos[:2], new_goal[:2])
         
         target, cte = self.navigation.get_local_target(pos[:2])
         goal_pos = self.delivery.get_current_goal()
@@ -153,25 +203,38 @@ class AckermannCityEnv(gym.Env):
         reward, info = self.reward_system.compute_reward(
             current_dist_to_goal=dist_to_goal,
             is_collision=collision,
-            road_dist=road_dist,
+            road_dist=road_violation_dist,  # Passing violation distance (proximity to edge)
             cross_track_error=cte,
             battery_consumed=self.battery.last_energy_drop,
             battery_level=self.battery.get_battery_level(),
-            mission_status=self.delivery.get_mission_status(),
+            mission_status=mission_status,
             current_vel=(self.current_linear_vel, self.current_angular_vel),
             goal_reached=goal_reached,
             acceleration=acceleration,
             obstacle_proximity=obstacle_proximity
         )
         
-        terminated = collision
-        truncated = self.battery.is_depleted() or self.steps > 2000
+        deadline_violation = mission_status['elapsed'] > (mission_status['deadline'] + self.deadline_grace)
+        terminated = collision or goal_reached
+        truncated = self.battery.is_depleted() or self.steps > self.max_episode_steps or deadline_violation
         
         info.update({
-            'road_dist': road_dist, 'battery': self.battery.get_battery_level(), 'load': load,
-            'is_collision': terminated, 'is_collision_lidar': lidar_collision,
-            'is_collision_offroad': offroad_collision, 'min_lidar_distance': min_lidar,
-            'velocity': vel, 'pos_x': pos[0], 'pos_y': pos[1], 'distance_to_goal': dist_to_goal
+            'road_dist': road_dist_edge,
+            'battery': self.battery.get_battery_level(),
+            'load': load,
+            'is_collision': collision,
+            'is_collision_lidar': lidar_collision,
+            'is_collision_offroad': offroad_collision,
+            'min_lidar_distance': min_lidar,
+            'velocity': vel,
+            'pos_x': pos[0],
+            'pos_y': pos[1],
+            'distance_to_goal': dist_to_goal,
+            'mission_elapsed': mission_status['elapsed'],
+            'mission_deadline': mission_status['deadline'],
+            'mission_remaining': mission_status['remaining'],
+            'deadline_exceeded': deadline_violation,
+            'goal_success': goal_reached
         })
         
         return self._build_obs(), reward, terminated, truncated, info
@@ -198,8 +261,8 @@ class AckermannCityEnv(gym.Env):
             time.sleep(0.1)
 
     def _build_obs(self):
-        """Build observation vector: [LiDAR(180), velocity(2), target(3), battery(1), CTE(1)] = 187."""
-        obs = np.zeros(187, dtype=np.float32)
+        """Build observation vector: [LiDAR(180), velocity(2), target(3), battery, CTE, time_left, late_flag, load]."""
+        obs = np.zeros(self.obs_dim, dtype=np.float32)
         
         scan = self.ros.get_scan()
         if scan and len(scan.ranges) > 0:
@@ -222,6 +285,21 @@ class AckermannCityEnv(gym.Env):
         obs[182:185] = [dx, dy, dtheta]
         obs[185] = self.battery.get_battery_level()
         obs[186] = cte
+        
+        mission = self.last_mission_status or {
+            'remaining': 0.0,
+            'deadline': 1.0,
+            'is_late': False,
+            'load_weight': self.load_min
+        }
+        deadline = max(1e-3, mission.get('deadline', 1.0))
+        remaining_ratio = np.clip(mission.get('remaining', 0.0) / deadline, 0.0, 1.0)
+        load_ratio = 0.0
+        load_span = max(1e-3, self.load_max - self.load_min)
+        load_ratio = np.clip((mission.get('load_weight', self.load_min) - self.load_min) / load_span, 0.0, 1.0)
+        obs[187] = remaining_ratio
+        obs[188] = 1.0 if mission.get('is_late', False) else 0.0
+        obs[189] = load_ratio
         
         return obs
 

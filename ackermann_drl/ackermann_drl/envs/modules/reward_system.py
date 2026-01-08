@@ -14,27 +14,42 @@ class RewardSystem:
     
     def __init__(self):
         # Reward weights (positive = reward, negative = penalty)
-        self.w_progress = 4.0
-        self.w_goal = 100.0
-        self.w_collision = -50.0
-        self.w_offroad = -1.0
-        self.w_path_deviation = -0.5
-        self.w_energy = -30.0
-        self.w_battery_conservation = -0.1
-        self.w_time = -0.01
-        self.w_delivery_late = -0.5
-        self.w_aggressive = -0.3
-        self.w_acceleration = -2.0
-        self.w_obstacle_proximity = -5.0
+        
+        # --- Primary Objectives (Navigation) ---
+        self.w_progress = 2.0         # Reward for moving closer to goal
+        self.w_goal = 200.0           # HUGE reward for reaching the goal (primary objective)
+        self.w_collision = -100.0     # Critical failure penalty
+        self.w_offroad = -2.0         # Strict penalty for leaving road area
+        
+        # --- Secondary Constraints (Safety & Comfort) ---
+        self.w_obstacle_proximity = -5.0 # Warning for getting too close to edges/obstacles
+        self.w_path_deviation = -0.5     # Guidance to stay near path (A* carrot)
+        self.w_aggressive = -2.0         # Penalize sharp control changes (jerk)
+        self.w_acceleration = -1.0       # Penalize high acceleration/braking
+        self.w_lateral_accel = -5.0      # Penalize high lateral acceleration (load stability)
+        
+        # --- Tertiary Constraints (Energy/Time) ---
+        self.w_time = -0.05              # Time penalty to encourage speed
+        self.w_energy = -50.0            # Penalty for energy consumption (weighted by load)
+        self.w_battery_conservation = -0.0 # Focus on consumption per step rather than total level
+        self.w_delivery_late = -2.0      # Penalty per second if deadline missed
+        self.w_reverse = -2.0            # Penalty for driving in reverse
         
         self.prev_dist_to_goal = None
         self.prev_linear_vel = 0.0
         self.prev_angular_vel = 0.0
+        self.prev_late_time = 0.0
 
     def reset(self, initial_dist):
         self.prev_dist_to_goal = initial_dist
         self.prev_linear_vel = 0.0
         self.prev_angular_vel = 0.0
+        self.prev_late_time = 0.0
+
+    def update_goal_reference(self, initial_dist):
+        """Update progress reference when a new mission starts inside an episode."""
+        self.prev_dist_to_goal = initial_dist
+        self.prev_late_time = 0.0
 
     def compute_reward(self, current_dist_to_goal, is_collision, road_dist, cross_track_error,
                       battery_consumed, battery_level, mission_status, current_vel, goal_reached,
@@ -70,8 +85,8 @@ class RewardSystem:
         # Energy and battery penalties
         reward += self.w_energy * battery_consumed
         info['penalty_efficiency'] = self.w_energy * battery_consumed
-        reward += self.w_battery_conservation * (1.0 - battery_level)
-        info['penalty_battery_conservation'] = self.w_battery_conservation * (1.0 - battery_level)
+        # reward += self.w_battery_conservation * (1.0 - battery_level)
+        info['penalty_battery_conservation'] = 0.0
         
         # Acceleration penalty (quadratic)
         if not np.isfinite(acceleration):
@@ -79,6 +94,22 @@ class RewardSystem:
         penalty_acc = self.w_acceleration * (acceleration ** 2)
         reward += penalty_acc
         info['penalty_acceleration'] = penalty_acc
+        
+        # Lateral acceleration penalty (v^2/R approx or v * omega)
+        # Load stability check
+        linear_v = current_vel[0]
+        angular_v = current_vel[1]
+        lateral_accel = abs(linear_v * angular_v)
+        penalty_lat = self.w_lateral_accel * (lateral_accel ** 2)
+        reward += penalty_lat
+        info['penalty_lateral_accel'] = penalty_lat
+        
+        # Reverse driving penalty
+        if linear_v < -0.1:
+            reward += self.w_reverse
+            info['penalty_reverse'] = self.w_reverse
+        else:
+            info['penalty_reverse'] = 0.0
         
         # Obstacle proximity penalty
         if not np.isfinite(obstacle_proximity):
@@ -92,41 +123,52 @@ class RewardSystem:
         accel_jerk = abs(current_vel[0] - self.prev_linear_vel)
         steer_jerk = abs(current_vel[1] - self.prev_angular_vel)
         penalty = 0.0
-        if accel_jerk > 0.7:  # threshold
+        if accel_jerk > 0.5:  # threshold
             penalty += self.w_aggressive * accel_jerk
-        if steer_jerk > 0.3:  # threshold
+        if steer_jerk > 0.2:  # threshold
             penalty += self.w_aggressive * steer_jerk
         reward += penalty
         info['penalty_aggressive_change'] = penalty
+        
         self.prev_linear_vel = current_vel[0]
         self.prev_angular_vel = current_vel[1]
         
         reward += self.w_time
         info['penalty_time'] = self.w_time
         
+        # Deadline penalty (incremental once deadline is exceeded)
+        late_penalty = 0.0
+        if isinstance(mission_status, dict):
+            elapsed = mission_status.get('elapsed', 0.0)
+            deadline = mission_status.get('deadline', 0.0)
+            late_time = max(0.0, elapsed - deadline)
+            late_increment = max(0.0, late_time - self.prev_late_time)
+            if late_increment > 0.0:
+                late_penalty = self.w_delivery_late * late_increment
+            self.prev_late_time = late_time
+        else:
+            self.prev_late_time = 0.0
+        reward += late_penalty
+        info['penalty_delivery_late'] = late_penalty
+        info['reward_delivery_on_time'] = 0.0
+        
         if is_collision:
             reward += self.w_collision
             info['penalty_collision'] = self.w_collision
             info['reward_goal'] = 0.0
             info['reward_delivery_on_time'] = 0.0
-            info['penalty_delivery_late'] = 0.0
         elif goal_reached:
             reward += self.w_goal
             info['penalty_collision'] = 0.0
             info['reward_goal'] = self.w_goal
-            if mission_status['is_late']:
-                late_penalty = self.w_delivery_late * (mission_status['elapsed'] - mission_status['deadline'])
-                reward += late_penalty
-                info['penalty_delivery_late'] = late_penalty
-                info['reward_delivery_on_time'] = 0.0
-            else:
-                reward += 30.0
-                info['penalty_delivery_late'] = 0.0
+            
+            # Check delivery deadline
+            if mission_status and not mission_status.get('is_late', False):
+                reward += 30.0  # Bonus for on-time delivery
                 info['reward_delivery_on_time'] = 30.0
         else:
             info['penalty_collision'] = 0.0
             info['reward_goal'] = 0.0
             info['reward_delivery_on_time'] = 0.0
-            info['penalty_delivery_late'] = 0.0
         
         return reward, info
