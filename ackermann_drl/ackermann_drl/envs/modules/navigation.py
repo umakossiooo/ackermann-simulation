@@ -121,3 +121,23 @@ class NavigationSystem:
         """Distance from (x, y) to the nearest road centerline."""
         dist, _ = self.roads_geometry.distance_to_nearest_road(x, y)
         return dist
+
+    def get_road_info(self, x, y):
+        """Get detailed road information for point (x, y).
+        
+        Returns:
+            dist_center: Distance to road centerline
+            width: Width of the nearest road
+            dist_edge: Distance to road edge (positive = outside, negative = inside)
+            is_offroad: Boolean, True if outside road area
+        """
+        dist_center, metadata = self.roads_geometry.distance_to_nearest_road(x, y)
+        
+        width = 5.0  # Default width if not found
+        if metadata and 'width' in metadata:
+            width = float(metadata['width'])
+            
+        dist_edge = dist_center - (width / 2.0)
+        is_offroad = dist_edge > 0.0
+        
+        return dist_center, width, dist_edge, is_offroad
