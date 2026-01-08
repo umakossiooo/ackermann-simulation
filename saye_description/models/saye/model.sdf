@@ -448,9 +448,8 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.5</mu>
+              <mu>1.0</mu>
               <mu2>1.0</mu2>
-              <fdir1>0 0 1</fdir1>
             </ode>
           </friction>
         </surface>
@@ -535,9 +534,8 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.5</mu>
+              <mu>1.0</mu>
               <mu2>1.0</mu2>
-              <fdir1>0 0 1</fdir1>
             </ode>
           </friction>
         </surface>
@@ -656,9 +654,8 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.5</mu>
+              <mu>1.0</mu>
               <mu2>1.0</mu2>
-              <fdir1>0 0 1</fdir1>
             </ode>
           </friction>
         </surface>
@@ -698,9 +695,8 @@
         <surface>
           <friction>
             <ode>
-              <mu>0.5</mu>
+              <mu>1.0</mu>
               <mu2>1.0</mu2>
-              <fdir1>0 0 1</fdir1>
             </ode>
           </friction>
         </surface>
@@ -713,7 +709,7 @@
       <left_joint>front_left_wheel_joint</left_joint>
       <left_joint>rear_left_wheel_joint</left_joint>
       <right_joint>front_right_wheel_joint</right_joint>
-      <right_joint>front_right_wheel_joint</right_joint>
+      <right_joint>rear_right_wheel_joint</right_joint>
       <left_steering_joint>front_left_wheel_steering_joint</left_steering_joint>
       <right_steering_joint>front_right_wheel_steering_joint</right_steering_joint>
       <kingpin_width>0.199</kingpin_width>
