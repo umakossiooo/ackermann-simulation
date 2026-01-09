@@ -191,7 +191,7 @@ python3 visualize_path.py
 The visualization image will be saved in the current directory as `path_visualization.png`.
 
 ---
-
+![alt text](image.png)
 ## DRL Training (PPO)
 
 Training uses two terminals inside the container (both with the workspace sourced).
