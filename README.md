@@ -194,20 +194,21 @@ The visualization image will be saved in the current directory as `path_visualiz
 
 ## DRL Training (PPO)
 
-**Important:** Before starting, ensure the simulation is running:
+Training uses two terminals inside the container (both with the workspace sourced).
+
+### 0. Launch the Simulation Stack (Terminal 1)
+This launch file already spawns the robot at the Bari road pose, starts Gazebo, RViz, ros_gz_bridge and the TF utilities:
 ```bash
-ros2 launch saye_bringup saye_spawn.launch.py gui:=true
+ros2 launch ackermann_drl single_drl_training.launch.py gui:=true  # add rviz:=false for headless runs
 ```
+Leave this running for the entire training session.
 
-### 1. Start Training (New Session)
+### 1. Start Training (Terminal 2)
 
-**IMPORTANT:** Run from `/root/colcon_ws` inside the container after sourcing the environment.
-
-This starts a new agent from scratch:
+From a second terminal (still in `/root/colcon_ws`), start PPO. The environment now teleports back to the same spawn pose at the end of every episode, matching the launch defaults:
 ```bash
-# Inside container, from /root/colcon_ws
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py
-# Or with specific timesteps:
+# Example with custom horizon:
 python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py --total-timesteps 100000
 ```
 
