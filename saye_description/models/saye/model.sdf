@@ -42,14 +42,6 @@
           </box>
         </geometry>
       </collision>
-      <visual name="saye/visual_lidar">
-        <pose>0.05 0 .106 0 0 0</pose> 
-        <geometry>
-          <mesh>
-           <uri >package://saye_description/models/saye/meshes/STL27L.dae</uri>
-          </mesh>
-        </geometry>
-      </visual>
       <visual name="saye/camera_rack">
         <pose>0 0 .184 0 0 0</pose> 
         <geometry>
@@ -139,40 +131,6 @@
         </imu>
       </sensor>
       
-      <sensor name="gpu_lidar" type="gpu_lidar">
-        <pose>0.05 0 0.12 0 0 0</pose>
-        <always_on>1</always_on>
-        <lidar>
-          <scan>
-            <horizontal>
-              <samples>720</samples>
-              <resolution>1</resolution>
-              <min_angle>-3.1459</min_angle>
-              <max_angle>3.1459</max_angle>
-            </horizontal>
-            <vertical>
-              <samples>1</samples>
-              <resolution>1</resolution>
-              <min_angle>0</min_angle>
-              <max_angle>0</max_angle>
-            </vertical>
-          </scan>
-          <range>
-            <min>0.3</min>
-            <max>50</max>
-            <resolution>0.01</resolution>
-          </range>
-          <noise>
-            <type>gaussian</type>
-            <mean>0</mean>
-            <stddev>0.01</stddev>
-          </noise>
-        </lidar>
-        <gz_frame_id>saye/base_link</gz_frame_id>
-        <topic>scan</topic>
-        <visualize>true</visualize>
-        <update_rate>10</update_rate>
-      </sensor>
 
       <sensor name="rs_front" type="rgbd_camera">
         <pose>0.122 0 0.257 0 0 0</pose>
@@ -419,10 +377,10 @@
       <inertial>
         <mass>.05</mass>
         <inertia>
-          <ixx>0.00003331</ixx>
+          <ixx>0.0000204</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.0000204</iyy>
+          <iyy>0.00003331</iyy>
           <iyz>0</iyz>
           <izz>0.0000204</izz>
         </inertia>
@@ -450,6 +408,8 @@
             <ode>
               <mu>1.0</mu>
               <mu2>1.0</mu2>
+              <kp>10000000.0</kp>
+              <kd>1.0</kd>
             </ode>
           </friction>
         </surface>
@@ -505,10 +465,10 @@
       <inertial>
         <mass>.05</mass>
         <inertia>
-          <ixx>0.00003331</ixx>
+          <ixx>0.0000204</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.0000204</iyy>
+          <iyy>0.00003331</iyy>
           <iyz>0</iyz>
           <izz>0.0000204</izz>
         </inertia>
@@ -536,6 +496,8 @@
             <ode>
               <mu>1.0</mu>
               <mu2>1.0</mu2>
+              <kp>10000000.0</kp>
+              <kd>1.0</kd>
             </ode>
           </friction>
         </surface>
@@ -625,10 +587,10 @@
       <inertial>
         <mass>.05</mass>
         <inertia>
-          <ixx>0.00003331</ixx>
+          <ixx>0.0000204</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.0000204</iyy>
+          <iyy>0.00003331</iyy>
           <iyz>0</iyz>
           <izz>0.0000204</izz>
         </inertia>
@@ -656,6 +618,8 @@
             <ode>
               <mu>1.0</mu>
               <mu2>1.0</mu2>
+              <kp>10000000.0</kp>
+              <kd>1.0</kd>
             </ode>
           </friction>
         </surface>
@@ -666,10 +630,10 @@
       <inertial>
         <mass>.05</mass>
         <inertia>
-          <ixx>0.00003331</ixx>
+          <ixx>0.0000204</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.0000204</iyy>
+          <iyy>0.00003331</iyy>
           <iyz>0</iyz>
           <izz>0.0000204</izz>
         </inertia>
@@ -697,11 +661,73 @@
             <ode>
               <mu>1.0</mu>
               <mu2>1.0</mu2>
+              <kp>10000000.0</kp>
+              <kd>1.0</kd>
             </ode>
           </friction>
         </surface>
       </collision>
     </link>
+
+    <link name="lidar_link">
+      <pose relative_to="lidar_joint">0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.0001</ixx>
+          <iyy>0.0001</iyy>
+          <izz>0.0001</izz>
+        </inertia>
+      </inertial>
+      <visual name="saye/visual_lidar">
+        <pose>0 0 0 0 0 0</pose> 
+        <geometry>
+          <mesh>
+           <uri >package://saye_description/models/saye/meshes/STL27L.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      <sensor name="gpu_lidar" type="gpu_lidar">
+        <pose>0 0 0 0 0 0</pose>
+        <always_on>1</always_on>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>720</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.1459</min_angle>
+              <max_angle>3.1459</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.3</min>
+            <max>50</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </lidar>
+        <gz_frame_id>saye/lidar_link</gz_frame_id>
+        <topic>scan</topic>
+        <visualize>true</visualize>
+        <update_rate>10</update_rate>
+      </sensor>
+    </link>
+
+    <joint name="lidar_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_link</child>
+      <pose relative_to="base_link">0.05 0 0.12 0 0 0</pose>
+    </joint>
 
     <plugin
       filename="gz-sim-ackermann-steering-system"
@@ -717,10 +743,10 @@
       <wheel_base>.2255</wheel_base>
       <wheel_separation>.2</wheel_separation>
       <wheel_radius>0.0365</wheel_radius>
-      <min_velocity>-10.0</min_velocity>
-      <max_velocity>10.0</max_velocity>
-      <min_acceleration>-10</min_acceleration>
-      <max_acceleration>10</max_acceleration>
+      <min_velocity>-5.0</min_velocity>
+      <max_velocity>5.0</max_velocity>
+      <min_acceleration>-3</min_acceleration>
+      <max_acceleration>3</max_acceleration>
       <topic>/cmd_vel</topic>
     </plugin>
 
@@ -732,6 +758,7 @@
     </plugin>
 
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <update_rate>100</update_rate>
       <odom_frame>odom</odom_frame>
       <robot_base_frame>saye/base_link</robot_base_frame>
       <odom_topic>odom</odom_topic>
@@ -740,6 +767,7 @@
     </plugin>
 
     <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <update_rate>100</update_rate>
       <topic>/joint_states</topic>
       <joint_name>front_left_wheel_joint</joint_name>
       <joint_name>front_right_wheel_joint</joint_name>
