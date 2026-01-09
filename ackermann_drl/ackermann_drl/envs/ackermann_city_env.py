@@ -58,9 +58,8 @@ class AckermannCityEnv(gym.Env):
         self.offroad_patience = 5  # steps tolerated off-road before aborting
         self.offroad_buffer = 0.1  # meters - treat car as outside slightly before curb
 
-        # Default start from launch file (single_drl_training.launch.py)
-        # x=169.37, y=0.21, z=0.35, yaw=0.0796
-        self.start_pose = {'x': 169.37, 'y': 0.21, 'z': 0.35, 'yaw': 0.0796}
+        # Default spawn from saye_spawn.launch.py so training reset matches manual runs
+        self.start_pose = {'x': 5.55, 'y': -94.69, 'z': 0.35, 'yaw': -1.5064}
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
