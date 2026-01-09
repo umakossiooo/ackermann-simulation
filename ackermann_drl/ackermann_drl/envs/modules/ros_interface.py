@@ -131,43 +131,24 @@ class RosInterface(Node):
             qy = 0.0
             qz = pose_msg.pose.pose.orientation.z
             
-            cmd = (
-                f"gz service -s /world/bari_world/set_pose "
-                f"--req 'name: \"saye\", position: {{x: {x}, y: {y}, z: {z}}}, "
-                f"orientation: {{w: {qw}, x: {qx}, y: {qy}, z: {qz}}}' "
-                f"--rep 'gz.msgs.Boolean' --timeout 500"
-            )
-            # Try specific world name first, then fallback to map/default if needed (or just assume bari_world based on launch)
-            # The launch file says 'bari_world.sdf', usually the world name in gz is the one defined in SDF.
-            # If it fails, we might try /world/map/set_pose as fallback? 
-            # Original code was /world/map/set_pose. Let's try to detect or try both.
+            def build_cmd(world: str) -> str:
+                return (
+                    f"gz service -s /world/{world}/set_pose "
+                    f"--reqtype gz.msgs.Pose "
+                    f"--reptype gz.msgs.Boolean "
+                    f"--timeout 500 "
+                    f"--req 'name: \"saye\", position: {{x: {x}, y: {y}, z: {z}}}, "
+                    f"orientation: {{w: {qw}, x: {qx}, y: {qy}, z: {qz}}}'"
+                )
             
-            # Trying the original path first for compatibility if map name differs, but update coords
-            cmd_generic = (
-                f"gz service -s /world/map/set_pose "
-                f"--req 'name: \"saye\", position: {{x: {x}, y: {y}, z: {z}}}, "
-                f"orientation: {{w: {qw}, x: {qx}, y: {qy}, z: {qz}}}' "
-                f"--rep 'gz.msgs.Boolean' --timeout 500"
-            )
-            
-            # We will run the generic one first (since it was there), if likely to fail, maybe try the named one?
-            # Actually, the user's issue is likely that it goes to 0,0. 
-            # I will run the command with the updated coordinates.
-            # Note: I replaced 'map' with 'bari_world' in the first string above, but I should probably keep 'map' if that's what was working (just wrong coords).
-            # But wait, usually world name is specific. 'map' might have been a guess in original code.
-            # Let's try both sequentially or just use 'map' if we think that's the TF frame. But gz service needs WORLD name.
-            # I'll try to run both to be safe.
-            
-            subprocess.run(shlex.split(cmd_generic), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            # Also try with bari_world just in case
-            cmd_bari = (
-                f"gz service -s /world/bari_world/set_pose "
-                f"--req 'name: \"saye\", position: {{x: {x}, y: {y}, z: {z}}}, "
-                f"orientation: {{w: {qw}, x: {qx}, y: {qy}, z: {qz}}}' "
-                f"--rep 'gz.msgs.Boolean' --timeout 500"
-            )
-            subprocess.run(shlex.split(cmd_bari), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Try the generic "map" service first (works in Docker), then the bari_world alias.
+            for world_name in ("map", "bari_world"):
+                subprocess.run(
+                    shlex.split(build_cmd(world_name)),
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             
         except Exception:
             pass  # Ignore if gz CLI fails
