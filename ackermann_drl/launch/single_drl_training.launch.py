@@ -30,16 +30,22 @@ def generate_launch_description():
         default_value='false',
         description='Launch Gazebo GUI'
     )
+
+    rviz_arg = DeclareLaunchArgument(
+        'rviz',
+        default_value='true',
+        description='Launch RViz'
+    )
     
     # Robot spawn position (default from OSM spawn_point_173)
     robot_x_arg = DeclareLaunchArgument(
         'robot_x',
-        default_value='169.37',
+        default_value='5.55',
         description='Robot X position (east, meters)'
     )
     robot_y_arg = DeclareLaunchArgument(
         'robot_y',
-        default_value='0.21',
+        default_value='-94.69',
         description='Robot Y position (north, meters)'
     )
     robot_z_arg = DeclareLaunchArgument(
@@ -49,7 +55,7 @@ def generate_launch_description():
     )
     robot_Y_arg = DeclareLaunchArgument(
         'robot_Y',
-        default_value='0.0796',
+        default_value='-1.5064',
         description='Robot yaw (radians)'
     )
     
@@ -65,13 +71,14 @@ def generate_launch_description():
             'robot_y': LaunchConfiguration('robot_y'),
             'robot_z': LaunchConfiguration('robot_z'),
             'robot_Y': LaunchConfiguration('robot_Y'),
-            'rviz': 'false',  # Disable RViz for training
+            'rviz': LaunchConfiguration('rviz'),
         }.items(),
     )
     
     return LaunchDescription([
         world_arg,
         gui_arg,
+        rviz_arg,
         robot_x_arg,
         robot_y_arg,
         robot_z_arg,
