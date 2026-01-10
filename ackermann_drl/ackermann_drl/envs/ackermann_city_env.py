@@ -58,9 +58,6 @@ class AckermannCityEnv(gym.Env):
         self.offroad_patience = 5  # steps tolerated off-road before aborting
         self.offroad_buffer = 0.1  # meters - treat car as outside slightly before curb
 
-        # Default spawn from saye_spawn.launch.py so training reset matches manual runs
-        self.start_pose = {'x': 5.55, 'y': -94.69, 'z': 0.35, 'yaw': -1.5064}
-
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.steps = 0
@@ -70,7 +67,7 @@ class AckermannCityEnv(gym.Env):
         self.last_mission_status = self.delivery.get_mission_status()
         
         self.reset_pub.publish(Bool(data=True))
-        self.ros.reset_simulation(self.start_pose)
+        self.ros.reset_simulation()
         time.sleep(0.5)
         self._wait_for_sensors()
         self.offroad_steps = 0

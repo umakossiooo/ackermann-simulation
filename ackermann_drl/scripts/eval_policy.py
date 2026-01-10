@@ -101,12 +101,15 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
             episode_length += 1
             
             # Track battery level
-            if 'battery_level' in info:
-                episode_battery_levels.append(info['battery_level'])
+            battery_level = info.get('battery')
+            if battery_level is None:
+                battery_level = info.get('battery_level')
+            if battery_level is not None:
+                episode_battery_levels.append(battery_level)
             
-            # Track off-road violations
-            road_distance = obs[186]  # Road distance is at index 186
-            if road_distance > 0.0:
+            # Track off-road violations (positive distance means outside road)
+            road_distance = info.get('road_dist')
+            if road_distance is not None and road_distance > 0.0:
                 episode_offroad_violations += 1
                 episode_offroad_distances.append(road_distance)
             
@@ -116,7 +119,6 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
         
         # Determine episode outcome
         # Check if goal was reached by looking at reward components
-        # Goal reward is +10.0, collision penalty is -10.0
         goal_reward = info.get('reward_goal', 0.0)
         
         if terminated:

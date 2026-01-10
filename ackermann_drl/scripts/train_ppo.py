@@ -78,7 +78,7 @@ class RewardLogger(BaseCallback):
                         fmt_val = f"{val:.6f}" if val < 0.0 else " 0.000000"
                     print(f"  {'[+]' if 'reward' in k else '[-]'} {k:25s}: {fmt_val}", flush=True)
                 total = sum(sums[k]/count for k in self.keys)
-                print(f"{'-'*70}")
+                print(f"{'─'*70}")
                 print(f"  TOTAL: {total:+.6f}")
                 print(f"{'='*70}")
                 if first:

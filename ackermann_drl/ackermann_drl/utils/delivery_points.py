@@ -61,6 +61,8 @@ class DeliveryPoints:
             Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/delivery_points.yaml'),
             # Path 3: From workspace root
             Path('/root/colcon_ws/install/ackermann_drl/share/ackermann_drl/config/delivery_points.yaml'),
+            # Path 4: Host workspace path (non-container runs)
+            Path('/home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/delivery_points.yaml'),
         ]
         
         for candidate in candidate_paths:
@@ -217,4 +219,3 @@ class DeliveryPoints:
             pos.get('north', 0.0),
             pos.get('up', 0.0)
         )
-
