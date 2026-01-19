@@ -3,11 +3,34 @@
 drl:
   # Environment parameters
   env:
-    max_episode_steps: 1000
-    reward_timeout: -0.01
-    reward_collision: -10.0
-    reward_goal_reached: 10.0
-    reward_distance: 0.1
+    max_episode_steps: 6500
+    require_road_polygons: true
+    sync_sensors: true
+    sensor_timeout: 0.5
+    sensor_poll: 0.01
+    
+    # Low-level control shaping (rate limiter + smoothing)
+    control:
+      max_linear_accel: 1.5    # m/s^2
+      max_angular_accel: 1.0   # rad/s^2
+      smoothing_tau: 0.45      # seconds
+    
+    # Rewards (weights)
+    rewards:
+      w_progress: 2.0
+      w_goal: 200.0
+      w_collision: -500.0
+      w_offroad: -5.0
+      w_obstacle_proximity: -7.0
+      w_path_deviation: -1.0
+      w_aggressive: -4.0
+      w_acceleration: -0.5
+      w_lateral_accel: -3.0
+      w_time: -0.15
+      w_energy: -15.0
+      w_battery_conservation: -0.0
+      w_delivery_late: -2.0
+      w_reverse: -2.0
     
   # Action space
   action:
@@ -20,7 +43,6 @@ drl:
   observation:
     scan_samples: 720  # Number of LiDAR samples
     use_odom: true
-    use_imu: false
     normalize_scan: true
     scan_max_range: 50.0  # meters
     
@@ -37,5 +59,5 @@ drl:
   robot:
     wheel_base: 0.2255  # meters
     wheel_separation: 0.2  # meters
+    vehicle_width: 0.27  # meters (wheel separation + 2 * wheel radius)
     max_steering_angle: 0.4  # radians
-

@@ -9,6 +9,7 @@ import time
 import subprocess
 from pathlib import Path
 
+import yaml
 import rclpy
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
@@ -36,14 +37,13 @@ class RewardLogger(BaseCallback):
                      'penalty_lateral_accel', 'penalty_reverse']
     
     def _on_step(self):
-        self.step_count += 1
+        # self.num_timesteps is provided by BaseCallback and tracks the global step count
+        current_step = self.num_timesteps
         infos = self.locals.get("infos", [])
         if not infos:
             return True
         
         sums = {k: 0.0 for k in self.keys}
-        maxes = {k: 0.0 for k in self.keys}
-        collisions = 0
         count = 0
         
         for info in infos:
@@ -52,23 +52,20 @@ class RewardLogger(BaseCallback):
                     if k in info:
                         v = info[k]
                         sums[k] += v
-                        maxes[k] = min(maxes[k], v) if k == 'penalty_collision' else max(maxes[k], v)
-                if info.get('is_collision', False):
-                    collisions += 1
                 count += 1
         
         if count > 0:
             for k in self.keys:
                 self.logger.record(f"reward/{k}", sums[k] / count)
             
-            should_print = (self.step_count % self.log_interval == 0) or any(
+            should_print = (current_step % self.log_interval == 0) or any(
                 i.get('episode', {}).get('r') is not None for i in infos
             )
             
             if should_print and self.verbose > 0:
                 first = infos[0] if infos and isinstance(infos[0], dict) else {}
                 print(f"\n{'='*70}", flush=True)
-                print(f"[Step {self.step_count}] REWARD BREAKDOWN (avg over {count} steps)", flush=True)
+                print(f"[Step {current_step}] REWARD BREAKDOWN (avg over {count} steps)", flush=True)
                 print(f"{'='*70}", flush=True)
                 for k in self.keys:
                     val = sums[k] / count
@@ -86,6 +83,27 @@ class RewardLogger(BaseCallback):
                           f"v={first.get('velocity', 0):.2f}, dist={first.get('distance_to_goal', 0):.2f}\n")
         
         return True
+
+
+def _load_drl_config(config_path: str = None) -> dict:
+    candidates = []
+    if config_path:
+        candidates.append(Path(config_path))
+    candidates.extend([
+        package_path / 'config' / 'drl_params.yaml',
+        Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/drl_params.yaml'),
+        Path('/home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/drl_params.yaml'),
+        Path('/root/colcon_ws/install/ackermann_drl/share/ackermann_drl/config/drl_params.yaml'),
+        Path('/home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/install/ackermann_drl/share/ackermann_drl/config/drl_params.yaml'),
+    ])
+    for path in candidates:
+        if path and path.exists():
+            try:
+                with open(path, 'r') as f:
+                    return yaml.safe_load(f) or {}
+            except Exception:
+                continue
+    return {}
 
 
 def stop_robot(env, vec_env):
@@ -117,29 +135,62 @@ def main():
         rclpy.init()
     
     parser = argparse.ArgumentParser(description='Train PPO agent')
-    parser.add_argument('--total-timesteps', type=int, default=100000)
+    parser.add_argument('--config', type=str, default=None)
+    parser.add_argument('--total-timesteps', type=int, default=None)
     parser.add_argument('--checkpoint-interval', type=int, default=10000)
     parser.add_argument('--checkpoint-dir', type=str, default=None)
     parser.add_argument('--log-dir', type=str, default=None)
     parser.add_argument('--load-model', type=str, default=None)
-    parser.add_argument('--learning-rate', type=float, default=3e-4)
-    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--learning-rate', type=float, default=None)
+    parser.add_argument('--batch-size', type=int, default=None)
     parser.add_argument('--n-steps', type=int, default=2048)
-    parser.add_argument('--n-epochs', type=int, default=10)
-    parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--gae-lambda', type=float, default=0.95)
+    parser.add_argument('--n-epochs', type=int, default=None)
+    parser.add_argument('--gamma', type=float, default=None)
+    parser.add_argument('--gae-lambda', type=float, default=None)
     parser.add_argument('--clip-range', type=float, default=0.2)
     parser.add_argument('--ent-coef', type=float, default=0.01)
     parser.add_argument('--vf-coef', type=float, default=0.5)
     parser.add_argument('--max-grad-norm', type=float, default=0.5)
     parser.add_argument('--device', type=str, default='auto')
     args = parser.parse_args()
+
+    config = _load_drl_config(args.config)
+    if not config:
+        print(f"[WARN] Config not loaded (source: {args.config if args.config else 'defaults'}). Using internal defaults.", flush=True)
+    elif args.config:
+        print(f"[INFO] Config loaded from {args.config}", flush=True)
+    else:
+        print(f"[INFO] Config loaded from discovered default path.", flush=True)
+
+    training_cfg = config.get('drl', {}).get('training', {}) if isinstance(config, dict) else {}
+
+    def pick(value, key, default):
+        if value is not None:
+            return value
+        cfg_val = training_cfg.get(key)
+        return cfg_val if cfg_val is not None else default
+
+    def coerce(value, cast, default):
+        try:
+            return cast(value)
+        except (TypeError, ValueError):
+            return default
+
+    total_timesteps = coerce(pick(args.total_timesteps, 'total_timesteps', 100000), int, 100000)
+    learning_rate = coerce(pick(args.learning_rate, 'learning_rate', 3e-4), float, 3e-4)
+    batch_size = coerce(pick(args.batch_size, 'batch_size', 64), int, 64)
+    n_epochs = coerce(pick(args.n_epochs, 'n_epochs', 10), int, 10)
+    gamma = coerce(pick(args.gamma, 'gamma', 0.99), float, 0.99)
+    gae_lambda = coerce(pick(args.gae_lambda, 'gae_lambda', 0.95), float, 0.95)
     
     checkpoint_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else package_path / 'checkpoints'
     log_dir = Path(args.log_dir) if args.log_dir else package_path / 'logs'
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     
+    env = None
+    vec_env = None
+
     def signal_handler(sig, frame):
         print("\n[!] Interrupt! Stopping car...", flush=True)
         stop_robot(env, vec_env)
@@ -160,7 +211,8 @@ def main():
     print("=" * 60)
     print(f"Checkpoint: {checkpoint_dir}")
     print(f"Logs: {log_dir}")
-    print(f"Timesteps: {args.total_timesteps}")
+    print(f"Timesteps: {total_timesteps}")
+    print(f"LR: {learning_rate}, Batch: {batch_size}, Epochs: {n_epochs}, Gamma: {gamma}, GAE: {gae_lambda}")
     print(f"Observation: {env.observation_space}")
     print(f"Action: {env.action_space}\n")
     
@@ -171,10 +223,11 @@ def main():
         print(f"[INFO] Loading: {args.load_model}")
         model = PPO.load(args.load_model, env=vec_env, device=args.device,
                         tensorboard_log=str(log_dir / 'tensorboard'), verbose=1)
+        print(f"[INFO] Resuming from step: {model.num_timesteps}")
     else:
-        model = PPO('MlpPolicy', vec_env, learning_rate=args.learning_rate,
-                   n_steps=args.n_steps, batch_size=args.batch_size, n_epochs=args.n_epochs,
-                   gamma=args.gamma, gae_lambda=args.gae_lambda, clip_range=args.clip_range,
+        model = PPO('MlpPolicy', vec_env, learning_rate=learning_rate,
+                   n_steps=args.n_steps, batch_size=batch_size, n_epochs=n_epochs,
+                   gamma=gamma, gae_lambda=gae_lambda, clip_range=args.clip_range,
                    ent_coef=args.ent_coef, vf_coef=args.vf_coef, max_grad_norm=args.max_grad_norm,
                    verbose=1, device=args.device, tensorboard_log=str(log_dir / 'tensorboard'))
     
@@ -195,7 +248,19 @@ def main():
     print("=" * 60 + "\n")
     
     try:
-        model.learn(total_timesteps=args.total_timesteps, callback=callbacks, progress_bar=use_pbar)
+        should_reset = args.load_model is None
+        
+        # Calculate remaining timesteps if resuming
+        steps_to_train = total_timesteps
+        if not should_reset:
+            if model.num_timesteps >= total_timesteps:
+                 print(f"[INFO] Model already reached {model.num_timesteps} steps (target: {total_timesteps}). Increasing target by 100k.")
+                 steps_to_train = 100000
+            else:
+                 steps_to_train = total_timesteps - model.num_timesteps
+            print(f"[INFO] Training for {steps_to_train} more steps (Total target: {total_timesteps})")
+
+        model.learn(total_timesteps=steps_to_train, callback=callbacks, progress_bar=use_pbar, reset_num_timesteps=should_reset)
         model.save(str(checkpoint_dir / 'ppo_ackermann_final'))
         print("[+] Training completed!")
     except KeyboardInterrupt:

@@ -4,7 +4,8 @@ import numpy as np
 import rclpy
 import math
 import time
-from typing import Tuple, Dict
+import yaml
+from pathlib import Path
 from std_msgs.msg import Bool
 
 from ackermann_drl.envs.modules.ros_interface import RosInterface
@@ -16,7 +17,7 @@ from ackermann_drl.utils.delivery_points import DeliveryPoints
 
 
 class AckermannCityEnv(gym.Env):
-    """Gym Environment for Ackermann Vehicle DRL Training with A* path planning."""
+    """Gym Environment for Ackermann Vehicle DRL Training."""
     metadata = {'render_modes': ['human']}
 
     def __init__(self):
@@ -27,23 +28,89 @@ class AckermannCityEnv(gym.Env):
         self.ros = RosInterface()
         self.reset_pub = self.ros.create_publisher(Bool, '/reset_simulation', 1)
         
+        # Load configuration
+        self._load_config()
+        
         dp = DeliveryPoints()
         # Pass full point objects to DeliveryManager, not just positions
         self.delivery = DeliveryManager(dp.get_all_points())
         self.navigation = NavigationSystem()
-        self.reward_system = RewardSystem()
+        self.reward_system = RewardSystem(self.config_data.get('drl', {}))
         self.battery = BatteryModel(vehicle_weight=1000.0)
         self.load_min, self.load_max = self.delivery.get_load_range()
-        self.obs_dim = 190
-        self.max_episode_steps = 2000
+        
+        # Observation space
+        env_config = self.config_data.get('drl', {}).get('env', {})
+        obs_config = self.config_data.get('drl', {}).get('observation', {})
+        robot_config = self.config_data.get('drl', {}).get('robot', {})
+        self.scan_samples = int(obs_config.get('scan_samples', 180))
+        if self.scan_samples <= 0:
+            self.scan_samples = 180
+        self.normalize_scan = bool(obs_config.get('normalize_scan', False))
+        self.scan_max_range = float(obs_config.get('scan_max_range', 10.0))
+        if self.scan_max_range <= 0.0:
+            self.scan_max_range = 10.0
+        self.use_odom = bool(obs_config.get('use_odom', True))
+        self.require_road_polygons = bool(env_config.get('require_road_polygons', False))
+        self.sync_sensors = bool(env_config.get('sync_sensors', True))
+        self.sensor_timeout = float(env_config.get('sensor_timeout', 0.5))
+        if not np.isfinite(self.sensor_timeout) or self.sensor_timeout < 0.0:
+            self.sensor_timeout = 0.5
+        self.sensor_poll = float(env_config.get('sensor_poll', 0.01))
+        if not np.isfinite(self.sensor_poll) or self.sensor_poll <= 0.0:
+            self.sensor_poll = 0.01
+        if self.require_road_polygons:
+            road_polys = getattr(self.navigation.roads_geometry, 'road_polygons', [])
+            if not road_polys:
+                raise RuntimeError(
+                    "Road polygons not available. Expected road_polygons_merged.json "
+                    "for curb/sidewalk detection. Ensure maps are mounted in the container."
+                )
+        self.obs_dim = self.scan_samples + 13  # LiDAR + 13 state features
+        
+        # Low-level control shaping (rate limiter + smoothing)
+        control_config = env_config.get('control', {}) if isinstance(env_config, dict) else {}
+        self.max_linear_accel = max(0.0, float(control_config.get('max_linear_accel', 1.5)))
+        self.max_angular_accel = max(0.0, float(control_config.get('max_angular_accel', 2.0)))
+        self.smoothing_tau = max(0.0, float(control_config.get('smoothing_tau', 0.2)))
+        self._filtered_linear = 0.0
+        self._filtered_angular = 0.0
+        self._last_odom_stamp = None
+        self._last_scan_stamp = None
+        self._warned_sensor_timeout = False
+        
         self.deadline_grace = 0.0
         self.last_mission_status = None
         
-        self.action_space = spaces.Box(low=np.array([-1.0, -0.5]), high=np.array([3.0, 0.5]), dtype=np.float32)
+        # Define Action Space based on loaded config
+        # Action: [linear_velocity, angular_velocity]
+        # Normalized to [-1, 1] usually, but here we used direct values in original code.
+        # Ideally, we should normalize actions for PPO stability, but sticking to previous design logic if not requested.
+        # However, Box limits should match the physical constraints.
+        
+        # Linear velocity range: [min_linear_vel, max_linear_vel]
+        # Angular velocity range: [min_angular_vel, max_angular_vel]
+        self.action_space = spaces.Box(
+            low=np.array([self.min_linear_vel, self.min_angular_vel]), 
+            high=np.array([self.max_linear_vel, self.max_angular_vel]), 
+            dtype=np.float32
+        )
+        
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.obs_dim,), dtype=np.float32)
         
-        # Vehicle dimensions (approximate for collision check)
-        self.vehicle_width = 1.0  # meters
+        # Vehicle dimensions for curb/sidewalk detection
+        vehicle_width = env_config.get('vehicle_width')
+        if vehicle_width is None:
+            vehicle_width = robot_config.get('vehicle_width')
+        if vehicle_width is None:
+            vehicle_width = robot_config.get('wheel_separation', 1.0)
+        try:
+            vehicle_width = float(vehicle_width)
+        except (TypeError, ValueError):
+            vehicle_width = 1.0
+        if not np.isfinite(vehicle_width) or vehicle_width <= 0.0:
+            vehicle_width = 1.0
+        self.vehicle_width = vehicle_width
         self.vehicle_half_width = self.vehicle_width / 2.0
         
         self.collision_threshold = 0.8
@@ -54,28 +121,90 @@ class AckermannCityEnv(gym.Env):
         self.current_angular_vel = 0.0
         self.prev_vel = 0.0  # previous velocity for acceleration calculation
         self.dt = 0.1  # seconds - time step for acceleration
+        self._last_step_dt = self.dt
+        self._last_step_time = None
+        self._last_time_source = None
         self.offroad_steps = 0
-        self.offroad_patience = 5  # steps tolerated off-road before aborting
-        self.offroad_buffer = 0.1  # meters - treat car as outside slightly before curb
+        self.offroad_patience = 1  # steps tolerated off-road before aborting
+        self.offroad_buffer = 0.0  # meters - extra safety margin before curb contact
+        self.spawn_pose = {
+            'x': 5.55,
+            'y': -94.69,
+            'z': 0.35,
+            'yaw': -1.5064,
+        }
+
+    def _load_config(self):
+        """Load DRL parameters from YAML file."""
+        self.config_data = {}
+        # Try to find config file
+        package_root = Path(__file__).resolve().parents[2]
+        config_path = package_root / 'config' / 'drl_params.yaml'
+        
+        # Fallback paths
+        if not config_path.exists():
+            candidates = [
+                Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/drl_params.yaml'),
+                Path('/home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/drl_params.yaml'),
+                Path('/root/colcon_ws/install/ackermann_drl/share/ackermann_drl/config/drl_params.yaml'),
+                Path('/home/studente/ackermann_sim/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/install/ackermann_drl/share/ackermann_drl/config/drl_params.yaml')
+            ]
+            for c in candidates:
+                if c.exists():
+                    config_path = c
+                    break
+        
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f) or {}
+                if not isinstance(config, dict):
+                    config = {}
+                self.config_data = config
+                drl_config = config.get('drl', {})
+                env_config = drl_config.get('env', {})
+                action_config = drl_config.get('action', {})
+                
+                self.max_episode_steps = env_config.get('max_episode_steps', 2000)
+                self.max_linear_vel = action_config.get('max_linear_velocity', 2.0)
+                self.min_linear_vel = action_config.get('min_linear_velocity', -2.0)
+                self.max_angular_vel = action_config.get('max_angular_velocity', 1.0)
+                self.min_angular_vel = action_config.get('min_angular_velocity', -1.0)
+                print(f"[AckermannCityEnv] Loaded config from {config_path}")
+        else:
+            print("[AckermannCityEnv] Warning: drl_params.yaml not found. Using defaults.")
+            self.max_episode_steps = 2000
+            self.max_linear_vel = 3.0
+            self.min_linear_vel = -1.0
+            self.max_angular_vel = 0.5
+            self.min_angular_vel = -0.5
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.steps = 0
+        self._reset_action_filter()
         self.delivery.reset()
         self.battery.reset()
         self.prev_vel = 0.0
         self.last_mission_status = self.delivery.get_mission_status()
+        self._warned_sensor_timeout = False
         
+        if self.spawn_pose is None:
+            self._capture_spawn_pose()
         self.reset_pub.publish(Bool(data=True))
-        self.ros.reset_simulation()
+        self.ros.reset_simulation(initial_pose=self.spawn_pose)
         time.sleep(0.5)
         self._wait_for_sensors()
+        odom = self.ros.get_odom()
+        scan = self.ros.get_scan()
+        self._last_odom_stamp = self._stamp_from_msg(odom)
+        self._last_scan_stamp = self._stamp_from_msg(scan)
+        self._last_step_dt = self.dt
         self.offroad_steps = 0
+        self._reset_time_tracking()
         
-        pos = self._get_position()
+        pos = self._get_position(odom)
         goal = self.delivery.get_current_goal()
-        if not self.navigation.plan_path(pos[:2], goal[:2]):
-            raise RuntimeError(f"[AckermannCityEnv] Failed to plan path from {pos[:2]} to {goal[:2]}")
+
         initial_dist = np.linalg.norm(np.array(pos[:2]) - np.array(goal[:2]))
         self.reward_system.reset(initial_dist)
         
@@ -98,7 +227,7 @@ class AckermannCityEnv(gym.Env):
             'goal_success': False
         }
         
-        return self._build_obs(), info
+        return self._build_obs(odom=odom, scan=scan), info
 
     def step(self, action):
         """Execute one step: apply action, get sensors, compute reward."""
@@ -107,37 +236,56 @@ class AckermannCityEnv(gym.Env):
         action = np.asarray(action, dtype=np.float32).flatten()
         if len(action) < 2:
             action = np.pad(action, (0, 2 - len(action)), 'constant', constant_values=0.0)
-        
-        self.current_linear_vel = float(action[0])
-        self.current_angular_vel = float(action[1]) if len(action) > 1 else 0.0
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+
+        control_dt = self._last_step_dt if np.isfinite(self._last_step_dt) and self._last_step_dt > 0.0 else self.dt
+        pre_odom = self.ros.get_odom()
+        pre_scan = self.ros.get_scan()
+        prev_odom_stamp = self._stamp_from_msg(pre_odom) or self._last_odom_stamp
+        prev_scan_stamp = self._stamp_from_msg(pre_scan) or self._last_scan_stamp
+
+        self.current_linear_vel, self.current_angular_vel = self._apply_action_smoothing(
+            float(action[0]), float(action[1]), control_dt
+        )
         self.ros.publish_cmd_vel(self.current_linear_vel, self.current_angular_vel)
-        
-        odom = self.ros.get_odom()
-        scan = self.ros.get_scan()
-        pos = self._get_position()
+
+        odom, scan = self._wait_for_new_data(prev_odom_stamp, prev_scan_stamp)
+        if odom is None:
+            odom = pre_odom
+        if scan is None:
+            scan = pre_scan
+
+        pos = self._get_position(odom)
         vel = np.sqrt(odom.twist.twist.linear.x**2 + odom.twist.twist.linear.y**2) if odom else 0.0
-        
+
+        step_dt = self._get_step_dt(odom)
+        self._last_step_dt = step_dt
+        self._last_odom_stamp = self._stamp_from_msg(odom)
+        self._last_scan_stamp = self._stamp_from_msg(scan)
+
         # Calculate physical acceleration (m/s^2)
         if not np.isfinite(vel):
             vel = 0.0
         if not np.isfinite(self.prev_vel):
             self.prev_vel = 0.0
         
-        acceleration = (vel - self.prev_vel) / self.dt
+        acceleration = (vel - self.prev_vel) / step_dt if step_dt > 0.0 else 0.0
         acceleration = np.clip(acceleration, -20.0, 20.0)  # clamp to ±20 m/s^2
         self.prev_vel = vel
         
-        self.delivery.advance_time(self.dt)
+        self.delivery.advance_time(step_dt)
         mission_status = self.delivery.get_mission_status()
         self.last_mission_status = mission_status
         load = mission_status['load_weight']
         self.battery.set_vehicle_weight(1000.0 + load)
-        self.battery.update(np.array([pos[0], pos[1]]), vel)
+        self.battery.update(np.array([pos[0], pos[1]]), vel, dt=step_dt)
         
         lidar_collision, min_lidar = self._check_lidar(scan)
-        road_dist_center, road_width, road_dist_edge, is_offroad = self.navigation.get_road_info(pos[0], pos[1])
+        _, _, road_dist_edge, _ = self.navigation.get_road_info(pos[0], pos[1])
         
-        # User requirement: penalize only if outside road area.
+        # Road boundary handling:
+        # - "offroad_collision" ends the episode when the vehicle body crosses the road edge.
+        # - "road_violation_dist" provides a smooth penalty near the edge and outside.
         # We consider "offroad collision" if the vehicle body is outside the road (hitting the curb).
         # road_dist_edge is: dist_from_center - (road_width / 2.0)
         # Positive means center is outside. Negative means center is inside.
@@ -148,7 +296,8 @@ class AckermannCityEnv(gym.Env):
         # However, we want to be slightly lenient to avoid false positives on the exact boundary,
         # but strict enough to catch the curb.
         # If the car is hitting the banqueta (curb), it's likely at the edge.
-        offroad_margin = -self.vehicle_half_width + self.offroad_buffer
+        # Positive buffer shrinks the allowed road area to trigger earlier.
+        offroad_margin = -self.vehicle_half_width - self.offroad_buffer
         offroad_collision = road_dist_edge > offroad_margin
         if road_dist_edge > 0.0:
             self.offroad_steps += 1
@@ -171,34 +320,26 @@ class AckermannCityEnv(gym.Env):
             obstacle_proximity = 0.0
         obstacle_proximity = np.clip(obstacle_proximity, 0.0, 1.0)
         
-        # Road edge proximity / Off-road penalty logic
-        # We want to penalize when the car gets close to the edge (inside the road)
-        # road_dist_edge is negative inside the road. e.g. -2.0 means 2m inside. -0.1 means 0.1m inside.
-        # We want penalty to be high when road_dist_edge is close to -vehicle_half_width (from negative side).
-        # i.e. when we are about to hit the curb.
-        
+        # Road edge proximity / off-road penalty logic (single scalar for reward shaping)
+        # dist_from_edge_contact > 0 means the vehicle body is inside the road.
         dist_from_edge_contact = (-road_dist_edge) - self.vehicle_half_width
-        # If dist_from_edge_contact is positive, we are safely inside.
-        # If it is close to 0, we are close to collision.
-        
         edge_warning_dist = 0.5
-        road_violation_dist = 0.0
-        
-        if not offroad_collision:
-            # Inside safe zone (but maybe close to edge)
-            if dist_from_edge_contact < edge_warning_dist:
-                # We map the remaining distance to a "violation distance" for the reward system
-                # 0.5m buffer -> 0.0 violation
-                # 0.0m buffer -> 1.0 violation (approx)
-                road_violation_dist = (edge_warning_dist - dist_from_edge_contact)
+        if not np.isfinite(dist_from_edge_contact):
+            road_violation_dist = 0.0
+        elif dist_from_edge_contact >= edge_warning_dist:
+            road_violation_dist = 0.0
+        elif dist_from_edge_contact >= 0.0:
+            # Smooth ramp near the edge (kept in meters)
+            norm = (edge_warning_dist - dist_from_edge_contact) / edge_warning_dist
+            road_violation_dist = (norm * norm) * edge_warning_dist
         else:
-            # Outside safe zone (collision)
-            road_violation_dist = 1.0 + road_dist_edge # Just a positive value to ensure penalty
+            # Outside road: base penalty + distance outside
+            road_violation_dist = edge_warning_dist + (-dist_from_edge_contact)
             
         goal_reached = self.delivery.check_goal_reached(pos[:2], self.goal_threshold)
         
-        target, cte = self.navigation.get_local_target(pos[:2])
         goal_pos = self.delivery.get_current_goal()
+        target, cte = self.navigation.get_local_target(pos[:2], goal_pos[:2])
         dist_to_goal = np.linalg.norm(np.array(pos[:2]) - np.array(goal_pos[:2]))
         
         reward, info = self.reward_system.compute_reward(
@@ -215,9 +356,11 @@ class AckermannCityEnv(gym.Env):
             obstacle_proximity=obstacle_proximity
         )
         
+        battery_depleted = self.battery.is_depleted()
+        max_steps_exceeded = self.steps > self.max_episode_steps
         deadline_violation = mission_status['elapsed'] > (mission_status['deadline'] + self.deadline_grace)
         terminated = collision or goal_reached
-        truncated = self.battery.is_depleted() or self.steps > self.max_episode_steps or deadline_violation
+        truncated = battery_depleted or max_steps_exceeded or deadline_violation
         
         info.update({
             'road_dist': road_dist_edge,
@@ -235,10 +378,12 @@ class AckermannCityEnv(gym.Env):
             'mission_deadline': mission_status['deadline'],
             'mission_remaining': mission_status['remaining'],
             'deadline_exceeded': deadline_violation,
+            'battery_depleted': battery_depleted,
+            'max_steps_exceeded': max_steps_exceeded,
             'goal_success': goal_reached
         })
         
-        return self._build_obs(), reward, terminated, truncated, info
+        return self._build_obs(odom=odom, scan=scan), reward, terminated, truncated, info
 
     def _check_lidar(self, scan):
         if not scan or len(scan.ranges) == 0:
@@ -249,43 +394,144 @@ class AckermannCityEnv(gym.Env):
         min_dist = min(valid)
         return min_dist < self.collision_threshold, min_dist
 
-    def _get_position(self):
-        odom = self.ros.get_odom()
+    def _get_position(self, odom=None):
+        if odom is None:
+            odom = self.ros.get_odom()
         if odom:
             p = odom.pose.pose.position
             return (p.x, p.y, p.z)
         return (0.0, 0.0, 0.0)
+
+    def _get_yaw_from_odom(self, odom):
+        q = odom.pose.pose.orientation
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+    def _capture_spawn_pose(self, timeout=5.0):
+        if self.spawn_pose is not None:
+            return self.spawn_pose
+        self._wait_for_sensors(timeout=timeout)
+        odom = self.ros.get_odom()
+        if not odom:
+            return None
+        p = odom.pose.pose.position
+        yaw = self._get_yaw_from_odom(odom)
+        self.spawn_pose = {
+            'x': float(p.x),
+            'y': float(p.y),
+            'z': float(p.z),
+            'yaw': float(yaw),
+        }
+        return self.spawn_pose
 
     def _wait_for_sensors(self, timeout=5.0):
         start = time.time()
         while (self.ros.get_odom() is None or self.ros.get_scan() is None) and (time.time() - start < timeout):
             time.sleep(0.1)
 
-    def _build_obs(self):
-        """Build observation vector: [LiDAR(180), velocity(2), target(3), battery, CTE, time_left, late_flag, load]."""
+    def _reset_time_tracking(self):
+        self._last_step_time = None
+        self._last_time_source = None
+
+    def _reset_action_filter(self):
+        self._filtered_linear = 0.0
+        self._filtered_angular = 0.0
+
+    def _apply_action_smoothing(self, linear, angular, dt):
+        dt = max(float(dt), 1e-3)
+        max_dv = self.max_linear_accel * dt
+        max_dw = self.max_angular_accel * dt
+        linear = np.clip(linear, self._filtered_linear - max_dv, self._filtered_linear + max_dv)
+        angular = np.clip(angular, self._filtered_angular - max_dw, self._filtered_angular + max_dw)
+        
+        if self.smoothing_tau > 1e-6:
+            alpha = dt / (self.smoothing_tau + dt)
+            self._filtered_linear += alpha * (linear - self._filtered_linear)
+            self._filtered_angular += alpha * (angular - self._filtered_angular)
+        else:
+            self._filtered_linear = linear
+            self._filtered_angular = angular
+        
+        return self._filtered_linear, self._filtered_angular
+
+    def _get_step_dt(self, odom):
+        current_time = None
+        source = None
+
+        if odom and hasattr(odom, 'header'):
+            stamp = odom.header.stamp
+            if stamp is not None:
+                stamp_time = stamp.sec + stamp.nanosec * 1e-9
+                if stamp_time > 0.0:
+                    current_time = stamp_time
+                    source = 'odom'
+
+        if current_time is None:
+            try:
+                current_time = self.ros.get_clock().now().nanoseconds * 1e-9
+                source = 'ros'
+            except Exception:
+                current_time = time.time()
+                source = 'wall'
+
+        if self._last_time_source != source or self._last_step_time is None:
+            self._last_step_time = current_time
+            self._last_time_source = source
+            return self.dt
+
+        delta = current_time - self._last_step_time
+        if not np.isfinite(delta) or delta <= 0.0:
+            delta = self.dt
+        self._last_step_time = current_time
+        return delta
+
+    def _build_obs(self, odom=None, scan=None):
+        """Build observation vector: [LiDAR(N), velocity(2), target(3), goal(3), battery, CTE, time_left, late_flag, load]."""
         obs = np.zeros(self.obs_dim, dtype=np.float32)
         
-        scan = self.ros.get_scan()
+        if scan is None:
+            scan = self.ros.get_scan()
         if scan and len(scan.ranges) > 0:
-            ranges = np.array(scan.ranges)
-            if len(ranges) >= 180:
-                ranges = ranges[::(len(ranges) // 180)][:180]
+            ranges = np.array(scan.ranges, dtype=np.float32)
+            pad_value = self.scan_max_range if self.normalize_scan else 10.0
+            if len(ranges) >= self.scan_samples:
+                # Uniform downsample to preserve field coverage
+                idx = np.linspace(0, len(ranges) - 1, self.scan_samples).astype(int)
+                ranges = ranges[idx]
             else:
-                ranges = np.pad(ranges, (0, 180 - len(ranges)), 'constant', constant_values=10.0)
-            obs[:180] = np.nan_to_num(ranges, nan=10.0, posinf=10.0, neginf=10.0)
+                # Pad if we have fewer points
+                ranges = np.pad(ranges, (0, self.scan_samples - len(ranges)), 'constant', constant_values=pad_value)
+            
+            # Ensure exact size in case of rounding errors in slicing
+            if len(ranges) > self.scan_samples:
+                ranges = ranges[:self.scan_samples]
+            elif len(ranges) < self.scan_samples:
+                ranges = np.pad(ranges, (0, self.scan_samples - len(ranges)), 'constant', constant_values=pad_value)
+            
+            ranges = np.nan_to_num(ranges, nan=pad_value, posinf=pad_value, neginf=pad_value)
+            if self.normalize_scan and self.scan_max_range > 1e-6:
+                ranges = np.clip(ranges, 0.0, self.scan_max_range) / self.scan_max_range
+            
+            obs[:self.scan_samples] = ranges
         
-        odom = self.ros.get_odom()
-        if odom:
-            obs[180] = odom.twist.twist.linear.x
-            obs[181] = odom.twist.twist.angular.z
+        # Index offset for non-LiDAR features
+        idx = self.scan_samples
         
-        pos = self._get_position()
-        target, cte = self.navigation.get_local_target(pos[:2])
-        target_point = target if target else self.delivery.get_current_goal()[:2]
-        dx, dy, dtheta = self._to_relative(target_point)
-        obs[182:185] = [dx, dy, dtheta]
-        obs[185] = self.battery.get_battery_level()
-        obs[186] = cte
+        if odom is None:
+            odom = self.ros.get_odom()
+        if self.use_odom and odom:
+            obs[idx] = odom.twist.twist.linear.x
+            obs[idx+1] = odom.twist.twist.angular.z
+        
+        pos = self._get_position(odom)
+        goal_point = self.delivery.get_current_goal()[:2]
+        target, cte = self.navigation.get_local_target(pos[:2], goal_point)
+        target_point = target if target else goal_point
+        dx, dy, dtheta = self._to_relative(target_point, odom)
+        gdx, gdy, gdtheta = self._to_relative(goal_point, odom)
+        obs[idx+2:idx+5] = [dx, dy, dtheta]
+        obs[idx+5:idx+8] = [gdx, gdy, gdtheta]
+        obs[idx+8] = self.battery.get_battery_level()
+        obs[idx+9] = cte
         
         mission = self.last_mission_status or {
             'remaining': 0.0,
@@ -298,15 +544,16 @@ class AckermannCityEnv(gym.Env):
         load_ratio = 0.0
         load_span = max(1e-3, self.load_max - self.load_min)
         load_ratio = np.clip((mission.get('load_weight', self.load_min) - self.load_min) / load_span, 0.0, 1.0)
-        obs[187] = remaining_ratio
-        obs[188] = 1.0 if mission.get('is_late', False) else 0.0
-        obs[189] = load_ratio
+        obs[idx+10] = remaining_ratio
+        obs[idx+11] = 1.0 if mission.get('is_late', False) else 0.0
+        obs[idx+12] = load_ratio
         
         return obs
 
-    def _to_relative(self, target):
+    def _to_relative(self, target, odom=None):
         """Convert target position from world frame to robot frame."""
-        odom = self.ros.get_odom()
+        if odom is None:
+            odom = self.ros.get_odom()
         if not odom:
             return 0.0, 0.0, 0.0
         
@@ -327,6 +574,47 @@ class AckermannCityEnv(gym.Env):
             dtheta += 2 * math.pi
         
         return dx_r, dy_r, dtheta
+
+    @staticmethod
+    def _stamp_from_msg(msg):
+        if msg is None or not hasattr(msg, 'header'):
+            return None
+        stamp = msg.header.stamp
+        if stamp is None:
+            return None
+        return stamp.sec + stamp.nanosec * 1e-9
+
+    @staticmethod
+    def _is_newer_stamp(current, previous):
+        if current is None:
+            return False
+        if previous is None:
+            return True
+        return current > previous + 1e-9
+
+    def _wait_for_new_data(self, prev_odom_stamp, prev_scan_stamp):
+        if not self.sync_sensors:
+            return self.ros.get_odom(), self.ros.get_scan()
+
+        start = time.time()
+        odom = self.ros.get_odom()
+        scan = self.ros.get_scan()
+        if prev_odom_stamp is None and prev_scan_stamp is None:
+            return odom, scan
+
+        while time.time() - start < self.sensor_timeout:
+            odom_stamp = self._stamp_from_msg(odom)
+            scan_stamp = self._stamp_from_msg(scan)
+            if self._is_newer_stamp(odom_stamp, prev_odom_stamp) and self._is_newer_stamp(scan_stamp, prev_scan_stamp):
+                return odom, scan
+            time.sleep(self.sensor_poll)
+            odom = self.ros.get_odom()
+            scan = self.ros.get_scan()
+
+        if not self._warned_sensor_timeout:
+            print("[AckermannCityEnv] Warning: sensor sync timeout, using latest available data.")
+            self._warned_sensor_timeout = True
+        return odom, scan
 
     def close(self):
         self.ros.stop()
