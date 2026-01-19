@@ -14,6 +14,12 @@ drl:
       max_linear_accel: 1.5    # m/s^2
       max_angular_accel: 1.0   # rad/s^2
       smoothing_tau: 0.45      # seconds
+
+    # Road rule checks
+    road_rules:
+      speed_limit_tolerance: 0.0        # m/s margin before penalty
+      oneway_min_speed: 0.2             # m/s minimum to evaluate direction
+      oneway_heading_tolerance_deg: 90  # degrees
     
     # Rewards (weights)
     rewards:
@@ -26,6 +32,8 @@ drl:
       w_aggressive: -4.0
       w_acceleration: -0.5
       w_lateral_accel: -3.0
+      w_speeding: -2.0
+      w_oneway: -10.0
       w_time: -0.15
       w_energy: -15.0
       w_battery_conservation: -0.0

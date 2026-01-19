@@ -33,6 +33,8 @@ class RewardSystem:
         self.w_aggressive = rewards.get('w_aggressive', -2.0)         # Penalize sharp control changes (jerk)
         self.w_acceleration = rewards.get('w_acceleration', -1.0)       # Penalize high acceleration/braking
         self.w_lateral_accel = rewards.get('w_lateral_accel', -5.0)      # Penalize high lateral acceleration (load stability)
+        self.w_speeding = rewards.get('w_speeding', -2.0)           # Penalize exceeding maxspeed (per m/s)
+        self.w_oneway = rewards.get('w_oneway', -10.0)              # Penalize driving against oneway
         
         # --- Tertiary Constraints (Energy/Time) ---
         self.w_time = rewards.get('w_time', -0.05)              # Time penalty to encourage speed
@@ -59,7 +61,7 @@ class RewardSystem:
 
     def compute_reward(self, current_dist_to_goal, is_collision, road_dist, cross_track_error,
                       battery_consumed, battery_level, mission_status, current_vel, goal_reached,
-                      acceleration, obstacle_proximity):
+                      acceleration, obstacle_proximity, speed_excess=0.0, oneway_violation=0.0):
         reward = 0.0
         info = {}
         
@@ -128,6 +130,21 @@ class RewardSystem:
         penalty_obst = self.w_obstacle_proximity * obstacle_proximity
         reward += penalty_obst
         info['penalty_obstacle_proximity'] = penalty_obst
+
+        # Speed limit and oneway penalties
+        if not np.isfinite(speed_excess):
+            speed_excess = 0.0
+        speed_excess = max(0.0, float(speed_excess))
+        penalty_speed = self.w_speeding * speed_excess
+        reward += penalty_speed
+        info['penalty_speeding'] = penalty_speed
+
+        if not np.isfinite(oneway_violation):
+            oneway_violation = 0.0
+        oneway_violation = np.clip(oneway_violation, 0.0, 1.0)
+        penalty_oneway = self.w_oneway * oneway_violation
+        reward += penalty_oneway
+        info['penalty_oneway'] = penalty_oneway
         
         # Aggressive change penalty (jerk)
         accel_jerk = abs(current_vel[0] - self.prev_linear_vel)

@@ -127,6 +127,17 @@ class AckermannCityEnv(gym.Env):
         self.offroad_steps = 0
         self.offroad_patience = 1  # steps tolerated off-road before aborting
         self.offroad_buffer = 0.0  # meters - extra safety margin before curb contact
+        road_rules = env_config.get('road_rules', {}) if isinstance(env_config, dict) else {}
+        self.speed_limit_tolerance = float(road_rules.get('speed_limit_tolerance', 0.0))
+        if not np.isfinite(self.speed_limit_tolerance) or self.speed_limit_tolerance < 0.0:
+            self.speed_limit_tolerance = 0.0
+        self.oneway_min_speed = float(road_rules.get('oneway_min_speed', 0.2))
+        if not np.isfinite(self.oneway_min_speed) or self.oneway_min_speed < 0.0:
+            self.oneway_min_speed = 0.2
+        heading_tol_deg = float(road_rules.get('oneway_heading_tolerance_deg', 90.0))
+        if not np.isfinite(heading_tol_deg) or heading_tol_deg <= 0.0:
+            heading_tol_deg = 90.0
+        self.oneway_heading_tolerance = math.radians(heading_tol_deg)
         self.spawn_pose = {
             'x': 5.55,
             'y': -94.69,
@@ -256,7 +267,17 @@ class AckermannCityEnv(gym.Env):
             scan = pre_scan
 
         pos = self._get_position(odom)
-        vel = np.sqrt(odom.twist.twist.linear.x**2 + odom.twist.twist.linear.y**2) if odom else 0.0
+        if odom:
+            linear_x = float(odom.twist.twist.linear.x)
+            linear_y = float(odom.twist.twist.linear.y)
+            vel = math.sqrt(linear_x ** 2 + linear_y ** 2)
+        else:
+            linear_x = 0.0
+            linear_y = 0.0
+            vel = 0.0
+        yaw = self._get_yaw_from_odom(odom) if odom else 0.0
+        if not np.isfinite(yaw):
+            yaw = 0.0
 
         step_dt = self._get_step_dt(odom)
         self._last_step_dt = step_dt
@@ -281,6 +302,20 @@ class AckermannCityEnv(gym.Env):
         self.battery.update(np.array([pos[0], pos[1]]), vel, dt=step_dt)
         
         lidar_collision, min_lidar = self._check_lidar(scan)
+        road_speed_limit, oneway_dir, road_heading, _ = self.navigation.get_road_rules(pos[0], pos[1])
+        speed_excess = 0.0
+        if road_speed_limit is not None and np.isfinite(road_speed_limit) and road_speed_limit > 0.0:
+            limit = road_speed_limit + self.speed_limit_tolerance
+            speed_excess = max(0.0, abs(linear_x) - limit)
+        oneway_violation = 0.0
+        if oneway_dir != 0 and road_heading is not None and np.isfinite(road_heading):
+            if abs(linear_x) > self.oneway_min_speed:
+                motion_heading = yaw if linear_x >= 0.0 else yaw + math.pi
+                heading_error = self._normalize_angle(motion_heading - road_heading)
+                abs_err = abs(heading_error)
+                if abs_err > self.oneway_heading_tolerance:
+                    denom = max(1e-3, math.pi - self.oneway_heading_tolerance)
+                    oneway_violation = min(1.0, (abs_err - self.oneway_heading_tolerance) / denom)
         _, _, road_dist_edge, _ = self.navigation.get_road_info(pos[0], pos[1])
         
         # Road boundary handling:
@@ -353,7 +388,9 @@ class AckermannCityEnv(gym.Env):
             current_vel=(self.current_linear_vel, self.current_angular_vel),
             goal_reached=goal_reached,
             acceleration=acceleration,
-            obstacle_proximity=obstacle_proximity
+            obstacle_proximity=obstacle_proximity,
+            speed_excess=speed_excess,
+            oneway_violation=oneway_violation
         )
         
         battery_depleted = self.battery.is_depleted()
@@ -371,6 +408,9 @@ class AckermannCityEnv(gym.Env):
             'is_collision_offroad': offroad_collision,
             'min_lidar_distance': min_lidar,
             'velocity': vel,
+            'speed_limit_mps': road_speed_limit if road_speed_limit is not None else 0.0,
+            'speed_excess': speed_excess,
+            'oneway_violation': oneway_violation,
             'pos_x': pos[0],
             'pos_y': pos[1],
             'distance_to_goal': dist_to_goal,
@@ -405,6 +445,14 @@ class AckermannCityEnv(gym.Env):
     def _get_yaw_from_odom(self, odom):
         q = odom.pose.pose.orientation
         return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+    @staticmethod
+    def _normalize_angle(angle: float) -> float:
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
 
     def _capture_spawn_pose(self, timeout=5.0):
         if self.spawn_pose is not None:
