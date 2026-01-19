@@ -8,7 +8,6 @@ import yaml
 import os
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
-import numpy as np
 import random
 from shapely.geometry import Point
 
@@ -52,11 +51,11 @@ class DeliveryPoints:
         if env_path and Path(env_path).exists():
             return env_path
         
-        # Try relative to package
-        package_path = Path(__file__).parent.parent
+        # Try relative to package root (ackermann_drl/)
+        package_root = Path(__file__).resolve().parents[2]
         candidate_paths = [
             # Path 1: Config directory in package
-            package_path / 'config' / 'delivery_points.yaml',
+            package_root / 'config' / 'delivery_points.yaml',
             # Path 2: Absolute path in container
             Path('/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/delivery_points.yaml'),
             # Path 3: From workspace root
@@ -99,6 +98,7 @@ class DeliveryPoints:
                 
                 # Check if point is on road
                 dist, metadata = rg.distance_to_nearest_road(x, y)
+                signed_edge = rg.signed_distance_to_road(x, y)
                 width = 5.0
                 if metadata and 'width' in metadata:
                     width = float(metadata['width'])
@@ -106,8 +106,13 @@ class DeliveryPoints:
                 half_width = width / 2.0
                 margin = 0.5  # Safety margin to be well inside
                 
-                # If distance to center is greater than half width (minus margin), it might be offroad
-                if dist > (half_width - margin):
+                # If signed edge is available, use it; otherwise fall back to width heuristic.
+                if signed_edge is not None:
+                    needs_projection = signed_edge > -margin
+                else:
+                    needs_projection = dist > (half_width - margin)
+                
+                if needs_projection:
                     # Point is offroad or too close to edge. Project it to centerline.
                     if metadata:
                         polyline = metadata['polyline']

@@ -30,7 +30,7 @@ def make_env():
     return env
 
 
-def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episode: int = 1000):
+def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episode: int = 1000, device: str = "auto"):
     """Evaluate a trained policy.
     
     Args:
@@ -44,7 +44,7 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
     # Load model
     print(f"Loading model from {model_path}...")
     try:
-        model = PPO.load(model_path)
+        model = PPO.load(model_path, device=device)
         print("Model loaded successfully")
     except Exception as e:
         print(f"Failed to load model: {e}")
@@ -61,6 +61,8 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
         'success_count': 0,
         'collision_count': 0,
         'battery_depleted_count': 0,
+        'deadline_exceeded_count': 0,
+        'max_steps_exceeded_count': 0,
         'timeout_count': 0,
         'total_episodes': num_episodes,
         'battery_levels': [],
@@ -131,9 +133,19 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
                 stats['collision_count'] += 1
                 outcome = "COLLISION"
         elif truncated:
-            if info.get('battery_depleted', False):
+            battery_depleted = info.get('battery_depleted', False)
+            deadline_exceeded = info.get('deadline_exceeded', False)
+            max_steps_exceeded = info.get('max_steps_exceeded', False)
+
+            if battery_depleted:
                 stats['battery_depleted_count'] += 1
                 outcome = "BATTERY DEPLETED"
+            elif deadline_exceeded:
+                stats['deadline_exceeded_count'] += 1
+                outcome = "DEADLINE EXCEEDED"
+            elif max_steps_exceeded:
+                stats['max_steps_exceeded_count'] += 1
+                outcome = "MAX STEPS"
             else:
                 stats['timeout_count'] += 1
                 outcome = "TIMEOUT"
@@ -192,6 +204,8 @@ def print_statistics(stats: dict):
     print(f"  Success (goal reached): {stats['success_count']}")
     print(f"  Collision: {stats['collision_count']}")
     print(f"  Battery depleted: {stats['battery_depleted_count']}")
+    print(f"  Deadline exceeded: {stats['deadline_exceeded_count']}")
+    print(f"  Max steps exceeded: {stats['max_steps_exceeded_count']}")
     print(f"  Timeout: {stats['timeout_count']}")
     print()
     
@@ -280,7 +294,8 @@ def main():
         stats = evaluate_policy(
             str(model_path),
             num_episodes=args.num_episodes,
-            max_steps_per_episode=args.max_steps
+            max_steps_per_episode=args.max_steps,
+            device=args.device,
         )
         
         # Print statistics

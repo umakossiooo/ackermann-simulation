@@ -10,5 +10,4 @@ delivery_points:
       north: -122.5
       up: 0.0
     description: "First delivery point (Parking Aisle)"
-    deadline_seconds: 120.0  # Must deliver within 120 seconds (2 minutes)
-
+    deadline_seconds: 360.0  # Must deliver within 360 seconds (6 minutes)

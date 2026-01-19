@@ -8,9 +8,7 @@ import math
 import os
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
-import numpy as np
-from shapely.geometry import Point, LineString
-from shapely.ops import nearest_points
+from shapely.geometry import Point, LineString, Polygon
 
 
 class RoadsGeometry:
@@ -29,8 +27,10 @@ class RoadsGeometry:
         self.nodes_data: Dict = {}
         self.roads_polylines: List[LineString] = []
         self.roads_metadata: List[Dict] = []
+        self.road_polygons: List[Polygon] = []
         self._load_roads()
         self._build_polylines()
+        self._load_road_polygons()
     
     def _find_map2gazebo_file(self, filename: str) -> str:
         """Find map file by trying multiple candidate paths."""
@@ -59,6 +59,29 @@ class RoadsGeometry:
             "\n".join(f"  - {p}" for p in candidate_paths) +
             f"\n\nEnsure map2gazebo is mounted or set {env_var} environment variable."
         )
+
+    def _load_road_polygons(self):
+        """Load road polygons if available (for curb/sidewalk detection)."""
+        try:
+            polygons_file = self._find_map2gazebo_file('road_polygons_merged.json')
+        except FileNotFoundError:
+            return
+        try:
+            with open(polygons_file, 'r') as f:
+                data = json.load(f)
+            for entry in data.values():
+                merged_polys = entry.get('merged_polygons', [])
+                for coords in merged_polys:
+                    if len(coords) < 3:
+                        continue
+                    try:
+                        poly = Polygon(coords)
+                        if not poly.is_empty and poly.is_valid:
+                            self.road_polygons.append(poly)
+                    except Exception:
+                        continue
+        except Exception:
+            self.road_polygons = []
     
     def _load_roads(self):
         """Load road data from map2gazebo JSON files (edges.json and map.json)."""
@@ -157,6 +180,30 @@ class RoadsGeometry:
                 nearest_road = metadata.copy()
         
         return min_distance, nearest_road
+
+    def signed_distance_to_road(self, x: float, y: float) -> Optional[float]:
+        """Signed distance to nearest road polygon boundary.
+        
+        Returns negative distance when inside a road polygon, positive when outside.
+        Returns None if no road polygons are available.
+        """
+        if not self.road_polygons:
+            return None
+        point = Point(x, y)
+        inside_dist = []
+        outside_dist = []
+        
+        for poly in self.road_polygons:
+            if poly.contains(point) or poly.touches(point):
+                inside_dist.append(poly.boundary.distance(point))
+            else:
+                outside_dist.append(poly.distance(point))
+        
+        if inside_dist:
+            return -min(inside_dist)
+        if outside_dist:
+            return min(outside_dist)
+        return None
     
     def get_road_heading_at_point(self, x: float, y: float) -> Tuple[float, Optional[LineString]]:
         """Get road heading at nearest point. Returns (heading in radians, polyline).
@@ -238,4 +285,3 @@ class RoadsGeometry:
             if metadata['name'] == road_name:
                 return metadata['polyline']
         return None
-

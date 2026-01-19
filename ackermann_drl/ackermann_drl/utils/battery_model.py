@@ -71,6 +71,7 @@ class BatteryModel:
         self.battery_level = self.initial_level
         self.prev_velocity = None
         self.prev_position = None
+        self.last_energy_drop = 0.0
     
     def get_battery_level(self) -> float:
         """Get current battery level.
