@@ -205,11 +205,16 @@ Leave this running for the entire training session.
 
 ### 1. Start Training (Terminal 2)
 
-From a second terminal (still in `/root/colcon_ws`), start PPO. The environment now teleports back to the same spawn pose at the end of every episode, matching the launch defaults:
+From a second terminal (still in `/root/colcon_ws`), start PPO training. We use `python3` to run directly from source so logs and checkpoints are saved in your workspace folder.
+
 ```bash
-python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py
-# Example with custom horizon:
-python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py --total-timesteps 100000
+# Ensure workspace is sourced
+source install/setup.bash
+
+# Run training script
+python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py \
+  --config src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/drl_params.yaml \
+  --total-timesteps 500000
 ```
 
 ### 2. Reset Training (Delete All History)
@@ -222,10 +227,13 @@ rm -rf src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/*
 ### 3. Resume Training (From Saved Checkpoint)
 Use `Ctrl+C` to pause training safely. To resume:
 ```bash
-python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py --total-timesteps 100000 --load-model src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/ppo_ackermann_interrupted.zip
+python3 src/ackermann-vehicle-gzsim-ros2/ackermann_drl/scripts/train_ppo.py \
+  --config src/ackermann-vehicle-gzsim-ros2/ackermann_drl/config/drl_params.yaml \
+  --load-model src/ackermann-vehicle-gzsim-ros2/ackermann_drl/checkpoints/ppo_ackermann_interrupted.zip
 ```
 
 ### 4. Monitor Training
+
 **Method A: Terminal (Real-time)**
 The training script prints a detailed "REWARD BREAKDOWN" every step. Use this to see:
 - Progress Reward (getting closer to goal?)
@@ -233,10 +241,35 @@ The training script prints a detailed "REWARD BREAKDOWN" every step. Use this to
 - Off-road Penalty (is it driving on the sidewalk?)
 
 **Method B: TensorBoard (Graphs)**
-Logs are saved in `src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/tensorboard`.
-Since the viewer isn't installed in Docker, you can:
-1. Copy the `logs` folder to your host computer.
-2. Run `tensorboard --logdir logs/tensorboard` on your host.
+Logs are saved inside the container at:
+`src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/tensorboard`
+
+Since the TensorBoard viewer is not installed inside the container, you need to copy the logs to your host machine to view them.
+
+1. **On your host machine (outside Docker)**, copy the logs from the running container:
+   ```bash
+   # Create a local directory for logs
+   mkdir -p ~/ackermann_logs
+   
+   # Copy logs from the container (assuming container name is 'ackermann_sim')
+   docker cp ackermann_sim:/root/colcon_ws/src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/tensorboard ~/ackermann_logs/
+   ```
+
+2. **Run TensorBoard on your host:**
+   ```bash
+   # Ensure you have tensorboard installed (pip install tensorboard)
+   tensorboard --logdir ~/ackermann_logs/tensorboard
+   ```
+
+3. **Open in Browser:**
+   Go to [http://localhost:6006](http://localhost:6006) to see the training graphs (rewards, losses, episode lengths, etc.).
+
+   *Alternatively, if running inside the container (Recommended):*
+   ```bash
+   # Point to the source logs directory (where python3 saves them)
+   tensorboard --logdir src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/tensorboard --bind_all
+   ```
+   Then open `http://localhost:6006` in your host browser.
 
 **Method C: Excel (CSV)**
 A `monitor.csv` file is saved in `src/ackermann-vehicle-gzsim-ros2/ackermann_drl/logs/`. You can open this in Excel to plot the reward curve.
