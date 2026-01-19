@@ -28,6 +28,7 @@ ament_python_install_package(${PROJECT_NAME})
 install(PROGRAMS
   scripts/train_ppo.py
   scripts/eval_policy.py
+  scripts/smc_control_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -53,4 +54,3 @@ if(BUILD_TESTING)
 endif()
 
 ament_package()
-
