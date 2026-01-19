@@ -1,3 +1,5 @@
+import math
+import re
 import numpy as np
 from typing import Tuple, Optional
 from ackermann_drl.utils.roads_geometry import RoadsGeometry
@@ -85,3 +87,66 @@ class NavigationSystem:
         is_offroad = dist_edge > 0.0
 
         return dist_center, width, dist_edge, is_offroad
+
+    @staticmethod
+    def _normalize_angle(angle: float) -> float:
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
+
+    @staticmethod
+    def _parse_oneway(value) -> int:
+        """Return 1 for forward, -1 for reverse, 0 for not oneway/unknown."""
+        if value is None:
+            return 0
+        text = str(value).strip().lower()
+        if text in ('yes', 'true', '1', 'forward'):
+            return 1
+        if text in ('-1', 'reverse', 'backward'):
+            return -1
+        return 0
+
+    @staticmethod
+    def _parse_maxspeed(value) -> Optional[float]:
+        """Parse maxspeed value to m/s. Returns None if not available."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            speed_val = float(value)
+            if not np.isfinite(speed_val) or speed_val <= 0.0:
+                return None
+            return speed_val / 3.6
+
+        text = str(value).strip().lower()
+        if not text:
+            return None
+        match = re.search(r'([0-9]+(?:\\.[0-9]+)?)', text)
+        if not match:
+            return None
+        try:
+            speed_val = float(match.group(1))
+        except ValueError:
+            return None
+        if not np.isfinite(speed_val) or speed_val <= 0.0:
+            return None
+        if 'mph' in text:
+            return speed_val * 0.44704
+        return speed_val / 3.6
+
+    def get_road_rules(self, x: float, y: float):
+        """Return (speed_limit_mps, oneway_dir, road_heading_rad, metadata)."""
+        _, metadata = self.roads_geometry.distance_to_nearest_road(x, y)
+        if not metadata:
+            return None, 0, None, None
+
+        tags = metadata.get('tags', {})
+        if not isinstance(tags, dict):
+            tags = {}
+        speed_limit = self._parse_maxspeed(tags.get('maxspeed'))
+        oneway_dir = self._parse_oneway(tags.get('oneway'))
+        road_heading, _ = self.roads_geometry.get_road_heading_at_point(x, y)
+        if oneway_dir == -1:
+            road_heading = self._normalize_angle(road_heading + math.pi)
+        return speed_limit, oneway_dir, road_heading, metadata

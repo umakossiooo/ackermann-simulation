@@ -124,12 +124,17 @@ class RoadsGeometry:
             
             try:
                 polyline = LineString(points)
+                tags = edge_data.get('tags', {})
+                highway_type = edge_data.get('highway_type', '')
+                if not highway_type and isinstance(tags, dict):
+                    highway_type = tags.get('highway', '')
                 self.roads_polylines.append(polyline)
                 self.roads_metadata.append({
                     'way_id': way_id,
                     'name': edge_data.get('name', ''),
-                    'highway_type': edge_data.get('highway_type', ''),
+                    'highway_type': highway_type,
                     'width': edge_data.get('width', 0.0),
+                    'tags': tags,
                     'polyline': polyline
                 })
             except Exception:
