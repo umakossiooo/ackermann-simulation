@@ -16,21 +16,9 @@ class AckermannGymEnv(gym.Env):
         super().__init__()
         self.env = AckermannCityEnv()
         
-        self.action_space = spaces.Box(
-            low=np.array([-1.0, -0.5], dtype=np.float32),
-            high=np.array([3.0, 0.5], dtype=np.float32),
-            shape=(2,),
-            dtype=np.float32
-        )
-        
-        low_bounds = [0.0] * 180 + [-10.0, -5.0, -100.0, -100.0, -np.pi, 0.0, 0.0, 0.0, 0.0, 0.0]
-        high_bounds = [50.0] * 180 + [10.0, 5.0, 100.0, 100.0, np.pi, 1.0, 100.0, 1.0, 1.0, 1.0]
-        self.observation_space = spaces.Box(
-            low=np.array(low_bounds, dtype=np.float32),
-            high=np.array(high_bounds, dtype=np.float32),
-            shape=(190,),
-            dtype=np.float32
-        )
+        # Use underlying environment spaces to ensure consistency with config
+        self.action_space = self.env.action_space
+        self.observation_space = self.env.observation_space
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
         """Reset the environment."""

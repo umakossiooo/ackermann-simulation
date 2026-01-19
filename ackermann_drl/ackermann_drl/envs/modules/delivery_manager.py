@@ -17,9 +17,8 @@ class DeliveryManager:
         self.elapsed_time = 0.0
 
     def reset(self):
-        if not self.delivery_points:
-            self.current_goal_idx = 0
-        elif self.randomize_start:
+        self._require_points()
+        if self.randomize_start:
             self.current_goal_idx = int(np.random.randint(0, len(self.delivery_points)))
         else:
             self.current_goal_idx = 0
@@ -33,12 +32,18 @@ class DeliveryManager:
         # Load weight simulation (simulating a package)
         self.current_load_weight = float(np.random.uniform(self.min_load_weight, self.max_load_weight))
 
+    def _require_points(self):
+        if not self.delivery_points:
+            raise ValueError("No delivery points available. Check delivery_points.yaml configuration.")
+
     def get_current_goal(self):
+        self._require_points()
         point_data = self.delivery_points[self.current_goal_idx]
         pos = point_data.get('position', {})
         return (pos.get('east', 0.0), pos.get('north', 0.0), pos.get('up', 0.0))
 
     def get_current_deadline(self):
+        self._require_points()
         point_data = self.delivery_points[self.current_goal_idx]
         return point_data.get('deadline_seconds', self.default_deadline)
 

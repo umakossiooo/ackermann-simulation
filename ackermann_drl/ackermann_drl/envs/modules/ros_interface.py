@@ -92,9 +92,12 @@ class RosInterface(Node):
                 continue
             try:
                 future = client.call_async(request)
-                rclpy.spin_until_future_complete(self, future, timeout_sec=timeout)
-                if future.done():
-                    service_called = True
+                start = time.time()
+                while time.time() - start < timeout:
+                    if future.done():
+                        service_called = True
+                        break
+                    time.sleep(0.05)
             except Exception:
                 continue
         
