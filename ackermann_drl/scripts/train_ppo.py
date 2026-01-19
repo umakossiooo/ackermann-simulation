@@ -34,7 +34,8 @@ class RewardLogger(BaseCallback):
                      'penalty_delivery_late', 'penalty_offroad', 'penalty_collision',
                      'penalty_aggressive_change', 'penalty_time', 'penalty_path_deviation',
                      'penalty_acceleration', 'penalty_obstacle_proximity',
-                     'penalty_lateral_accel', 'penalty_reverse']
+                     'penalty_lateral_accel', 'penalty_reverse',
+                     'penalty_speeding', 'penalty_oneway']
     
     def _on_step(self):
         # self.num_timesteps is provided by BaseCallback and tracks the global step count
