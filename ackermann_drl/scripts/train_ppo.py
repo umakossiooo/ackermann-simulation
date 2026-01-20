@@ -29,13 +29,14 @@ class RewardLogger(BaseCallback):
         super().__init__(verbose)
         self.log_interval = log_interval
         self.step_count = 0
-        self.keys = ['reward_progress', 'reward_goal', 'reward_delivery_on_time',
-                     'penalty_battery_conservation', 'penalty_efficiency',
-                     'penalty_delivery_late', 'penalty_offroad', 'penalty_collision',
-                     'penalty_aggressive_change', 'penalty_time', 'penalty_path_deviation',
-                     'penalty_acceleration', 'penalty_obstacle_proximity',
-                     'penalty_lateral_accel', 'penalty_reverse',
-                     'penalty_speeding', 'penalty_oneway']
+        self.reward_keys = ['reward_progress', 'reward_goal', 'reward_delivery_on_time',
+                            'penalty_battery_conservation', 'penalty_efficiency',
+                            'penalty_delivery_late', 'penalty_offroad', 'penalty_collision',
+                            'penalty_aggressive_change', 'penalty_time', 'penalty_path_deviation',
+                            'penalty_acceleration', 'penalty_obstacle_proximity',
+                            'penalty_lateral_accel', 'penalty_reverse',
+                            'penalty_speeding', 'penalty_oneway']
+        self.collision_keys = ['collision_event', 'collision_active', 'collision_count']
     
     def _on_step(self):
         # self.num_timesteps is provided by BaseCallback and tracks the global step count
@@ -44,20 +45,25 @@ class RewardLogger(BaseCallback):
         if not infos:
             return True
         
-        sums = {k: 0.0 for k in self.keys}
+        reward_sums = {k: 0.0 for k in self.reward_keys}
+        collision_sums = {k: 0.0 for k in self.collision_keys}
         count = 0
         
         for info in infos:
             if isinstance(info, dict):
-                for k in self.keys:
+                for k in self.reward_keys:
                     if k in info:
-                        v = info[k]
-                        sums[k] += v
+                        reward_sums[k] += info[k]
+                for k in self.collision_keys:
+                    if k in info:
+                        collision_sums[k] += info[k]
                 count += 1
         
         if count > 0:
-            for k in self.keys:
-                self.logger.record(f"reward/{k}", sums[k] / count)
+            for k in self.reward_keys:
+                self.logger.record(f"reward/{k}", reward_sums[k] / count)
+            for k in self.collision_keys:
+                self.logger.record(f"collision/{k}", collision_sums[k] / count)
             
             should_print = (current_step % self.log_interval == 0) or any(
                 i.get('episode', {}).get('r') is not None for i in infos
@@ -68,20 +74,23 @@ class RewardLogger(BaseCallback):
                 print(f"\n{'='*70}", flush=True)
                 print(f"[Step {current_step}] REWARD BREAKDOWN (avg over {count} steps)", flush=True)
                 print(f"{'='*70}", flush=True)
-                for k in self.keys:
-                    val = sums[k] / count
+                for k in self.reward_keys:
+                    val = reward_sums[k] / count
                     if 'reward' in k:
                         fmt_val = f"{val:+.6f}" if val != 0.0 else " 0.000000"
                     else:
                         fmt_val = f"{val:.6f}" if val < 0.0 else " 0.000000"
                     print(f"  {'[+]' if 'reward' in k else '[-]'} {k:25s}: {fmt_val}", flush=True)
-                total = sum(sums[k]/count for k in self.keys)
+                total = sum(reward_sums[k] / count for k in self.reward_keys)
                 print(f"{'─'*70}")
                 print(f"  TOTAL: {total:+.6f}")
                 print(f"{'='*70}")
                 if first:
                     print(f"  State: x={first.get('pos_x', 0):.1f}, y={first.get('pos_y', 0):.1f}, "
-                          f"v={first.get('velocity', 0):.2f}, dist={first.get('distance_to_goal', 0):.2f}\n")
+                          f"v={first.get('velocity', 0):.2f}, dist={first.get('distance_to_goal', 0):.2f}")
+                    print(f"  Collisions: event={int(first.get('collision_event', 0))}, "
+                          f"active={int(first.get('collision_active', 0))}, "
+                          f"count={int(first.get('collision_count', 0))}\n")
         
         return True
 

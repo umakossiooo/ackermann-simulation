@@ -89,6 +89,8 @@ class AckermannCityEnv(gym.Env):
         self._last_odom_stamp = None
         self._last_scan_stamp = None
         self._warned_sensor_timeout = False
+
+        self._load_collision_config(env_config)
         
         self.deadline_grace = 0.0
         self.last_mission_status = None
@@ -124,7 +126,6 @@ class AckermannCityEnv(gym.Env):
         self.vehicle_width = vehicle_width
         self.vehicle_half_width = self.vehicle_width / 2.0
         
-        self.collision_threshold = 0.8
         self.goal_threshold = 2.0
         self.safe_distance = 2.0  # threshold for obstacle proximity
         self.steps = 0
@@ -137,8 +138,13 @@ class AckermannCityEnv(gym.Env):
         self._last_step_time = None
         self._last_time_source = None
         self.offroad_steps = 0
-        self.offroad_patience = 1  # steps tolerated off-road before aborting
-        self.offroad_buffer = 0.0  # meters - extra safety margin before curb contact
+        self.collision_count = 0
+        self.collision_active = False
+        self.collision_event = False
+        self.collision_active_steps = 0
+        self.collision_active_time = 0.0
+        self.collision_grace_steps_remaining = 0
+        self._lidar_collision_steps = 0
         road_rules = env_config.get('road_rules', {}) if isinstance(env_config, dict) else {}
         self.speed_limit_tolerance = float(road_rules.get('speed_limit_tolerance', 0.0))
         if not np.isfinite(self.speed_limit_tolerance) or self.speed_limit_tolerance < 0.0:
@@ -201,6 +207,49 @@ class AckermannCityEnv(gym.Env):
             self.max_angular_vel = 0.5
             self.min_angular_vel = -0.5
 
+    def _load_collision_config(self, env_config):
+        collision_config = env_config.get('collision', {}) if isinstance(env_config, dict) else {}
+        self.collision_threshold = self._coerce_float(
+            collision_config.get('lidar_threshold', 0.8),
+            0.8,
+            min_value=0.05
+        )
+        self.lidar_collision_patience = self._coerce_int(
+            collision_config.get('lidar_patience_steps', 1),
+            1,
+            min_value=1
+        )
+        self.max_collisions = self._coerce_int(
+            collision_config.get('max_collisions', 1),
+            1,
+            min_value=0
+        )
+        self.collision_grace_steps = self._coerce_int(
+            collision_config.get('post_event_grace_steps', 0),
+            0,
+            min_value=0
+        )
+        self.collision_stuck_time = self._coerce_float(
+            collision_config.get('stuck_time', 0.0),
+            0.0,
+            min_value=0.0
+        )
+        self.collision_stuck_steps = self._coerce_int(
+            collision_config.get('stuck_steps', 0),
+            0,
+            min_value=0
+        )
+        self.offroad_patience = self._coerce_int(
+            collision_config.get('offroad_patience_steps', 1),
+            1,
+            min_value=1
+        )
+        self.offroad_buffer = self._coerce_float(
+            collision_config.get('offroad_buffer_m', 0.0),
+            0.0,
+            min_value=0.0
+        )
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self._finalize_previous_episode()
@@ -235,6 +284,10 @@ class AckermannCityEnv(gym.Env):
             'is_collision': False,
             'is_collision_lidar': False,
             'is_collision_offroad': False,
+            'collision_event': False,
+            'collision_count': 0,
+            'collision_active': False,
+            'collision_active_time': 0.0,
             'min_lidar_distance': 10.0,
             'velocity': 0.0,
             'pos_x': pos[0],
@@ -259,6 +312,13 @@ class AckermannCityEnv(gym.Env):
         self.current_linear_vel = 0.0
         self.current_angular_vel = 0.0
         self.offroad_steps = 0
+        self.collision_count = 0
+        self.collision_active = False
+        self.collision_event = False
+        self.collision_active_steps = 0
+        self.collision_active_time = 0.0
+        self.collision_grace_steps_remaining = 0
+        self._lidar_collision_steps = 0
         self._warned_sensor_timeout = False
         self._last_odom_stamp = None
         self._last_scan_stamp = None
@@ -363,7 +423,15 @@ class AckermannCityEnv(gym.Env):
         self.battery.set_vehicle_weight(1000.0 + load)
         self.battery.update(np.array([pos[0], pos[1]]), vel, dt=step_dt)
         
-        lidar_collision, min_lidar = self._check_lidar(scan)
+        lidar_collision_raw, min_lidar = self._check_lidar(scan)
+        if lidar_collision_raw:
+            self._lidar_collision_steps += 1
+        else:
+            self._lidar_collision_steps = 0
+        lidar_collision = (
+            lidar_collision_raw
+            and self._lidar_collision_steps >= self.lidar_collision_patience
+        )
         road_speed_limit, oneway_dir, road_heading, _ = self.navigation.get_road_rules(pos[0], pos[1])
         speed_excess = 0.0
         if road_speed_limit is not None and np.isfinite(road_speed_limit) and road_speed_limit > 0.0:
@@ -403,7 +471,8 @@ class AckermannCityEnv(gym.Env):
         if self.offroad_steps >= self.offroad_patience:
             offroad_collision = True
         
-        collision = lidar_collision or offroad_collision
+        collision_active = lidar_collision or offroad_collision
+        collision_event, collision_terminal = self._update_collision_state(collision_active, step_dt)
         
         # Calculate obstacle proximity (LiDAR only now, road edge handled by penalty_offroad logic below)
         # Considers both physical obstacles (LiDAR)
@@ -441,7 +510,7 @@ class AckermannCityEnv(gym.Env):
         
         reward, info = self.reward_system.compute_reward(
             current_dist_to_goal=dist_to_goal,
-            is_collision=collision,
+            is_collision=collision_event,  # apply collision penalty once per event
             road_dist=road_violation_dist,  # Passing violation distance (proximity to edge)
             cross_track_error=cte,
             battery_consumed=self.battery.last_energy_drop,
@@ -458,16 +527,20 @@ class AckermannCityEnv(gym.Env):
         battery_depleted = self.battery.is_depleted()
         max_steps_exceeded = self.steps > self.max_episode_steps
         deadline_violation = mission_status['elapsed'] > (mission_status['deadline'] + self.deadline_grace)
-        terminated = collision or goal_reached
+        terminated = collision_terminal or goal_reached
         truncated = battery_depleted or max_steps_exceeded or deadline_violation
         
         info.update({
             'road_dist': road_dist_edge,
             'battery': self.battery.get_battery_level(),
             'load': load,
-            'is_collision': collision,
+            'is_collision': collision_active,
             'is_collision_lidar': lidar_collision,
             'is_collision_offroad': offroad_collision,
+            'collision_event': collision_event,
+            'collision_count': self.collision_count,
+            'collision_active': collision_active,
+            'collision_active_time': self.collision_active_time,
             'min_lidar_distance': min_lidar,
             'velocity': vel,
             'speed_limit_mps': road_speed_limit if road_speed_limit is not None else 0.0,
@@ -496,6 +569,39 @@ class AckermannCityEnv(gym.Env):
         min_dist = min(valid)
         return min_dist < self.collision_threshold, min_dist
 
+    def _update_collision_state(self, collision_active, step_dt):
+        collision_event = False
+        prev_active = self.collision_active
+
+        if collision_active:
+            self.collision_active_steps += 1
+            if np.isfinite(step_dt) and step_dt > 0.0:
+                self.collision_active_time += step_dt
+        else:
+            self.collision_active_steps = 0
+            self.collision_active_time = 0.0
+
+        if collision_active and not prev_active:
+            self.collision_count += 1
+            collision_event = True
+            self.collision_grace_steps_remaining = self.collision_grace_steps
+        elif self.collision_grace_steps_remaining > 0:
+            self.collision_grace_steps_remaining -= 1
+
+        self.collision_active = collision_active
+        self.collision_event = collision_event
+
+        should_terminate = False
+        if self.max_collisions > 0 and self.collision_count >= self.max_collisions:
+            if self.collision_grace_steps_remaining == 0:
+                should_terminate = True
+        if self.collision_stuck_steps > 0 and self.collision_active_steps >= self.collision_stuck_steps:
+            should_terminate = True
+        if self.collision_stuck_time > 0.0 and self.collision_active_time >= self.collision_stuck_time:
+            should_terminate = True
+
+        return collision_event, should_terminate
+
     def _get_position(self, odom=None):
         if odom is None:
             odom = self.ros.get_odom()
@@ -515,6 +621,28 @@ class AckermannCityEnv(gym.Env):
         while angle < -math.pi:
             angle += 2.0 * math.pi
         return angle
+
+    @staticmethod
+    def _coerce_int(value, default, min_value=None):
+        try:
+            result = int(value)
+        except (TypeError, ValueError):
+            return default
+        if min_value is not None and result < min_value:
+            return min_value
+        return result
+
+    @staticmethod
+    def _coerce_float(value, default, min_value=None):
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not np.isfinite(result):
+            return default
+        if min_value is not None and result < min_value:
+            return min_value
+        return result
 
     def _capture_spawn_pose(self, timeout=5.0):
         if self.spawn_pose is not None:

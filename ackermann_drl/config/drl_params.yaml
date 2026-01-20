@@ -10,6 +10,16 @@ drl:
     sensor_poll: 0.01
     episodes_per_sim_restart: 50
     sim_restart_pause: 1.0
+
+    # Collision handling
+    collision:
+      max_collisions: 3          # collisions allowed per episode before termination
+      post_event_grace_steps: 5  # steps to keep running after a collision event
+      stuck_time: 1.0            # seconds in continuous collision before termination
+      lidar_threshold: 0.8       # meters for LiDAR collision trigger
+      lidar_patience_steps: 2    # consecutive LiDAR hits to confirm collision
+      offroad_patience_steps: 3  # consecutive off-road steps to confirm collision
+      offroad_buffer_m: 0.0      # extra margin near curb contact
     
     # Low-level control shaping (rate limiter + smoothing)
     control:

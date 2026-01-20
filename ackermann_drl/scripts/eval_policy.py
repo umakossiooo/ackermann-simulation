@@ -60,6 +60,7 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
         'episodes': [],
         'success_count': 0,
         'collision_count': 0,
+        'collision_events': 0,
         'battery_depleted_count': 0,
         'deadline_exceeded_count': 0,
         'max_steps_exceeded_count': 0,
@@ -86,6 +87,8 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
         episode_battery_levels = []
         episode_offroad_distances = []
         episode_offroad_violations = 0
+        episode_collision_events = 0
+        episode_collision_active_steps = 0
         
         terminated = False
         truncated = False
@@ -114,6 +117,12 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
             if road_distance is not None and road_distance > 0.0:
                 episode_offroad_violations += 1
                 episode_offroad_distances.append(road_distance)
+
+            collision_event = info.get('collision_event', 0)
+            if collision_event:
+                episode_collision_events += int(collision_event)
+            if info.get('collision_active', False):
+                episode_collision_active_steps += 1
             
             # Check termination
             if terminated or truncated:
@@ -159,6 +168,8 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
             'outcome': outcome,
             'reward': episode_reward,
             'length': episode_length,
+            'collision_events': episode_collision_events,
+            'collision_active_steps': episode_collision_active_steps,
             'final_battery': episode_battery_levels[-1] if episode_battery_levels else 0.0,
             'avg_battery': np.mean(episode_battery_levels) if episode_battery_levels else 0.0,
             'offroad_violations': episode_offroad_violations,
@@ -172,6 +183,7 @@ def evaluate_policy(model_path: str, num_episodes: int = 10, max_steps_per_episo
         stats['offroad_distances'].extend(episode_offroad_distances)
         stats['episode_rewards'].append(episode_reward)
         stats['episode_lengths'].append(episode_length)
+        stats['collision_events'] += episode_collision_events
         
         print(f"{outcome} (reward: {episode_reward:.2f}, steps: {episode_length})")
     
@@ -207,6 +219,7 @@ def print_statistics(stats: dict):
     print(f"  Deadline exceeded: {stats['deadline_exceeded_count']}")
     print(f"  Max steps exceeded: {stats['max_steps_exceeded_count']}")
     print(f"  Timeout: {stats['timeout_count']}")
+    print(f"  Collision events: {stats['collision_events']}")
     print()
     
     # Battery statistics
