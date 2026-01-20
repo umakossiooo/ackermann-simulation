@@ -537,6 +537,7 @@ class AckermannCityEnv(gym.Env):
             'is_collision': collision_active,
             'is_collision_lidar': lidar_collision,
             'is_collision_offroad': offroad_collision,
+            'collision_terminal': collision_terminal,
             'collision_event': collision_event,
             'collision_count': self.collision_count,
             'collision_active': collision_active,

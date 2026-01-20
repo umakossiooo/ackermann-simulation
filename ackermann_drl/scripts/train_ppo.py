@@ -37,6 +37,13 @@ class RewardLogger(BaseCallback):
                             'penalty_lateral_accel', 'penalty_reverse',
                             'penalty_speeding', 'penalty_oneway']
         self.collision_keys = ['collision_event', 'collision_active', 'collision_count']
+        self.episode_flags = [
+            ('goal_success', 'episode/goal_success'),
+            ('collision_terminal', 'episode/collision_terminal'),
+            ('battery_depleted', 'episode/battery_depleted'),
+            ('deadline_exceeded', 'episode/deadline_exceeded'),
+            ('max_steps_exceeded', 'episode/max_steps_exceeded'),
+        ]
     
     def _on_step(self):
         # self.num_timesteps is provided by BaseCallback and tracks the global step count
@@ -91,8 +98,66 @@ class RewardLogger(BaseCallback):
                     print(f"  Collisions: event={int(first.get('collision_event', 0))}, "
                           f"active={int(first.get('collision_active', 0))}, "
                           f"count={int(first.get('collision_count', 0))}\n")
+
+        self._log_episode_flags(infos)
         
         return True
+
+    def _log_episode_flags(self, infos):
+        dones = self.locals.get("dones", [])
+        if dones is None or not infos:
+            return
+        try:
+            if not hasattr(dones, '__len__') or len(dones) == 0:
+                return
+        except (TypeError, AttributeError):
+            return
+        try:
+            if len(dones) != len(infos):
+                return
+        except (TypeError, AttributeError):
+            return
+        for done, info in zip(dones, infos):
+            done_flag = self._coerce_done_flag(done)
+            if not done_flag or not isinstance(info, dict):
+                continue
+            for key, tag in self.episode_flags:
+                self.logger.record(tag, float(bool(info.get(key, False))))
+            if 'collision_count' in info:
+                self.logger.record("episode/collision_count", float(info.get('collision_count', 0)))
+            self.logger.record("episode/termination_reason", float(self._termination_reason_id(info)))
+
+    @staticmethod
+    def _coerce_done_flag(done):
+        if done is None:
+            return False
+        if isinstance(done, bool):
+            return done
+        if isinstance(done, (list, tuple)):
+            return any(bool(item) for item in done)
+        try:
+            return bool(done)
+        except (ValueError, TypeError):
+            if hasattr(done, "any"):
+                try:
+                    return bool(done.any())
+                except Exception:
+                    return False
+            return False
+
+    @staticmethod
+    def _termination_reason_id(info):
+        if info.get('goal_success'):
+            return 1.0
+        if info.get('collision_terminal'):
+            return 2.0
+        if info.get('battery_depleted'):
+            return 3.0
+        if info.get('deadline_exceeded'):
+            return 4.0
+        if info.get('max_steps_exceeded'):
+            return 5.0
+        return 0.0
 
 
 def _load_drl_config(config_path: str = None) -> dict:
