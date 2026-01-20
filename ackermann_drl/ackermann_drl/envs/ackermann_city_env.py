@@ -59,6 +59,17 @@ class AckermannCityEnv(gym.Env):
         self.sensor_poll = float(env_config.get('sensor_poll', 0.01))
         if not np.isfinite(self.sensor_poll) or self.sensor_poll <= 0.0:
             self.sensor_poll = 0.01
+        restart_every = env_config.get('episodes_per_sim_restart', 0)
+        try:
+            restart_every = int(restart_every)
+        except (TypeError, ValueError):
+            restart_every = 0
+        if restart_every < 0:
+            restart_every = 0
+        self.episodes_per_sim_restart = restart_every
+        self.sim_restart_pause = float(env_config.get('sim_restart_pause', 1.0))
+        if not np.isfinite(self.sim_restart_pause) or self.sim_restart_pause < 0.0:
+            self.sim_restart_pause = 1.0
         if self.require_road_polygons:
             road_polys = getattr(self.navigation.roads_geometry, 'road_polygons', [])
             if not road_polys:
@@ -117,6 +128,7 @@ class AckermannCityEnv(gym.Env):
         self.goal_threshold = 2.0
         self.safe_distance = 2.0  # threshold for obstacle proximity
         self.steps = 0
+        self.episode_idx = 0
         self.current_linear_vel = 0.0
         self.current_angular_vel = 0.0
         self.prev_vel = 0.0  # previous velocity for acceleration calculation
@@ -191,27 +203,24 @@ class AckermannCityEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.steps = 0
-        self._reset_action_filter()
+        self._finalize_previous_episode()
+        self._reset_episode_state()
+        did_restart = self._maybe_restart_ros_interface()
         self.delivery.reset()
         self.battery.reset()
-        self.prev_vel = 0.0
         self.last_mission_status = self.delivery.get_mission_status()
-        self._warned_sensor_timeout = False
         
         if self.spawn_pose is None:
             self._capture_spawn_pose()
         self.reset_pub.publish(Bool(data=True))
         self.ros.reset_simulation(initial_pose=self.spawn_pose)
         time.sleep(0.5)
-        self._wait_for_sensors()
+        wait_timeout = 10.0 if did_restart else 5.0
+        self._wait_for_sensors(timeout=wait_timeout)
         odom = self.ros.get_odom()
         scan = self.ros.get_scan()
         self._last_odom_stamp = self._stamp_from_msg(odom)
         self._last_scan_stamp = self._stamp_from_msg(scan)
-        self._last_step_dt = self.dt
-        self.offroad_steps = 0
-        self._reset_time_tracking()
         
         pos = self._get_position(odom)
         goal = self.delivery.get_current_goal()
@@ -239,6 +248,59 @@ class AckermannCityEnv(gym.Env):
         }
         
         return self._build_obs(odom=odom, scan=scan), info
+
+    def _finalize_previous_episode(self):
+        if self.steps > 0:
+            self.episode_idx += 1
+
+    def _reset_episode_state(self):
+        self.steps = 0
+        self.prev_vel = 0.0
+        self.current_linear_vel = 0.0
+        self.current_angular_vel = 0.0
+        self.offroad_steps = 0
+        self._warned_sensor_timeout = False
+        self._last_odom_stamp = None
+        self._last_scan_stamp = None
+        self._last_step_dt = self.dt
+        self._reset_time_tracking()
+        self._reset_action_filter()
+
+    def _should_restart_sim(self):
+        """Check if ROS interface should be restarted based on episode count."""
+        if self.episodes_per_sim_restart <= 0:
+            return False
+        # Restart when episode_idx is a multiple of episodes_per_sim_restart
+        # (e.g., after episodes 50, 100, 150, ...)
+        return self.episode_idx > 0 and (self.episode_idx % self.episodes_per_sim_restart) == 0
+
+    def _maybe_restart_ros_interface(self):
+        """Restart ROS interface periodically to prevent performance degradation."""
+        if not self._should_restart_sim():
+            return False
+        print(
+            f"[AckermannCityEnv] Restarting ROS interface after completing "
+            f"{self.episode_idx} episodes (next episode: {self.episode_idx + 1})."
+        )
+        self._restart_ros_interface()
+        return True
+
+    def _restart_ros_interface(self):
+        """Restart the ROS interface (no Gazebo restart)."""
+        try:
+            # Stop the old ROS interface cleanly
+            self.ros.stop()
+        except Exception as e:
+            print(f"[AckermannCityEnv] Warning: Error stopping ROS interface: {e}")
+        # Ensure rclpy is initialized
+        if not rclpy.ok():
+            rclpy.init()
+        # Create new ROS interface
+        self.ros = RosInterface()
+        self.reset_pub = self.ros.create_publisher(Bool, '/reset_simulation', 1)
+        # Pause to allow ROS interface to initialize (subscribers, publishers, etc.)
+        if self.sim_restart_pause > 0.0:
+            time.sleep(self.sim_restart_pause)
 
     def step(self, action):
         """Execute one step: apply action, get sensors, compute reward."""

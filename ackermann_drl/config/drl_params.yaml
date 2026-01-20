@@ -8,6 +8,8 @@ drl:
     sync_sensors: true
     sensor_timeout: 0.5
     sensor_poll: 0.01
+    episodes_per_sim_restart: 50
+    sim_restart_pause: 1.0
     
     # Low-level control shaping (rate limiter + smoothing)
     control:
