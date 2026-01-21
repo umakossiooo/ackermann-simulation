@@ -31,9 +31,7 @@ class AckermannCityEnv(gym.Env):
         # Load configuration
         self._load_config()
         
-        dp = DeliveryPoints()
-        # Pass full point objects to DeliveryManager, not just positions
-        self.delivery = DeliveryManager(dp.get_all_points())
+        self.delivery = DeliveryManager(DeliveryPoints().get_all_points())
         self.navigation = NavigationSystem()
         self.reward_system = RewardSystem(self.config_data.get('drl', {}))
         self.battery = BatteryModel(vehicle_weight=1000.0)
@@ -95,14 +93,7 @@ class AckermannCityEnv(gym.Env):
         self.deadline_grace = 0.0
         self.last_mission_status = None
         
-        # Define Action Space based on loaded config
-        # Action: [linear_velocity, angular_velocity]
-        # Normalized to [-1, 1] usually, but here we used direct values in original code.
-        # Ideally, we should normalize actions for PPO stability, but sticking to previous design logic if not requested.
-        # However, Box limits should match the physical constraints.
-        
-        # Linear velocity range: [min_linear_vel, max_linear_vel]
-        # Angular velocity range: [min_angular_vel, max_angular_vel]
+        # Action space: [linear_velocity, angular_velocity]
         self.action_space = spaces.Box(
             low=np.array([self.min_linear_vel, self.min_angular_vel]), 
             high=np.array([self.max_linear_vel, self.max_angular_vel]), 
@@ -505,7 +496,7 @@ class AckermannCityEnv(gym.Env):
         goal_reached = self.delivery.check_goal_reached(pos[:2], self.goal_threshold)
         
         goal_pos = self.delivery.get_current_goal()
-        target, cte = self.navigation.get_local_target(pos[:2], goal_pos[:2])
+        _, cte = self.navigation.get_local_target(pos[:2], goal_pos[:2])
         dist_to_goal = np.linalg.norm(np.array(pos[:2]) - np.array(goal_pos[:2]))
         
         reward, info = self.reward_system.compute_reward(
@@ -779,7 +770,6 @@ class AckermannCityEnv(gym.Env):
         }
         deadline = max(1e-3, mission.get('deadline', 1.0))
         remaining_ratio = np.clip(mission.get('remaining', 0.0) / deadline, 0.0, 1.0)
-        load_ratio = 0.0
         load_span = max(1e-3, self.load_max - self.load_min)
         load_ratio = np.clip((mission.get('load_weight', self.load_min) - self.load_min) / load_span, 0.0, 1.0)
         obs[idx+10] = remaining_ratio

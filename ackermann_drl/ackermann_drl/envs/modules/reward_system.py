@@ -53,11 +53,6 @@ class RewardSystem:
         self.prev_angular_vel = 0.0
         self.prev_late_time = 0.0
 
-    def update_goal_reference(self, initial_dist):
-        """Update progress reference when a new mission starts inside an episode."""
-        self.prev_dist_to_goal = initial_dist
-        self.prev_late_time = 0.0
-
     def compute_reward(self, current_dist_to_goal, is_collision, road_dist,
                       battery_consumed, battery_level, mission_status, current_vel, goal_reached,
                       acceleration, obstacle_proximity, speed_excess=0.0, oneway_violation=0.0):
