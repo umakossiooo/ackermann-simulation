@@ -127,6 +127,15 @@ class DeliveryPoints:
                             point['position'] = {}
                         point['position']['east'] = float(x_new)
                         point['position']['north'] = float(y_new)
+                else:
+                    # Point is valid - verify it's actually inside road area
+                    if signed_edge is not None:
+                        if signed_edge < 0:
+                            print(f"[DeliveryPoints] Point {point.get('id')} at ({x:.1f}, {y:.1f}) is INSIDE road area (distance to edge: {abs(signed_edge):.2f}m)")
+                        else:
+                            print(f"[DeliveryPoints] WARNING: Point {point.get('id')} at ({x:.1f}, {y:.1f}) is OUTSIDE road area (distance: {signed_edge:.2f}m)")
+                    else:
+                        print(f"[DeliveryPoints] Point {point.get('id')} at ({x:.1f}, {y:.1f}) validated using distance heuristic (dist: {dist:.2f}m, width: {width:.2f}m)")
                 
                 self.delivery_points.append(point)
                 
