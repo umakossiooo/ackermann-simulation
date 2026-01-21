@@ -35,22 +35,22 @@ drl:
     
     # Rewards (weights)
     rewards:
-      w_progress: 2.0
-      w_goal: 200.0
-      w_collision: -500.0
-      w_offroad: -5.0
-      w_obstacle_proximity: -7.0
-      w_path_deviation: -1.0
-      w_aggressive: -4.0
-      w_acceleration: -0.5
-      w_lateral_accel: -3.0
-      w_speeding: -2.0
-      w_oneway: -10.0
-      w_time: -0.15
-      w_energy: -15.0
-      w_battery_conservation: -0.0
-      w_delivery_late: -2.0
-      w_reverse: -2.0
+      w_progress: 2.0              # Reward per meter closer to goal (good)
+      w_goal: 250.0               # Reward for reaching goal (increased from 200.0 for better signal)
+      w_collision: -500.0          # Critical failure penalty (good)
+      w_offroad: -5.0              # Penalty per meter off-road (good)
+      w_obstacle_proximity: -7.0   # Warning for getting too close (good)
+      w_path_deviation: -1.0       # Guidance to stay near road centerline (good)
+      w_aggressive: -4.0           # Penalize sharp control changes (good)
+      w_acceleration: -0.5         # Penalize high acceleration/braking (good)
+      w_lateral_accel: -3.0        # Penalize high lateral acceleration (good)
+      w_speeding: -2.0             # Penalize exceeding speed limit per m/s (good)
+      w_oneway: -10.0              # Penalize driving against oneway (good)
+      w_time: -0.01                # Time penalty per step (REDUCED from -0.15 to prevent domination)
+      w_energy: -15.0              # Penalty for energy consumption (good)
+      w_battery_conservation: -0.0 # Focus on consumption per step rather than total level (disabled)
+      w_delivery_late: -2.0        # Penalty per second if deadline missed (good)
+      w_reverse: -2.0              # Penalty for driving in reverse (good)
     
   # Action space
   action:
