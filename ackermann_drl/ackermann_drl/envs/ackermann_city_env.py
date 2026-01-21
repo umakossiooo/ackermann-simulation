@@ -512,7 +512,6 @@ class AckermannCityEnv(gym.Env):
             current_dist_to_goal=dist_to_goal,
             is_collision=collision_event,  # apply collision penalty once per event
             road_dist=road_violation_dist,  # Passing violation distance (proximity to edge)
-            cross_track_error=cte,
             battery_consumed=self.battery.last_energy_drop,
             battery_level=self.battery.get_battery_level(),
             mission_status=mission_status,

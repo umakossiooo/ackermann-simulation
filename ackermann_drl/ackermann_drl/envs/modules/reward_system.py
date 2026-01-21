@@ -29,7 +29,6 @@ class RewardSystem:
         
         # --- Secondary Constraints (Safety & Comfort) ---
         self.w_obstacle_proximity = rewards.get('w_obstacle_proximity', -5.0) # Warning for getting too close to edges/obstacles
-        self.w_path_deviation = rewards.get('w_path_deviation', -0.5)     # Guidance to stay near road centerline
         self.w_aggressive = rewards.get('w_aggressive', -2.0)         # Penalize sharp control changes (jerk)
         self.w_acceleration = rewards.get('w_acceleration', -1.0)       # Penalize high acceleration/braking
         self.w_lateral_accel = rewards.get('w_lateral_accel', -5.0)      # Penalize high lateral acceleration (load stability)
@@ -59,7 +58,7 @@ class RewardSystem:
         self.prev_dist_to_goal = initial_dist
         self.prev_late_time = 0.0
 
-    def compute_reward(self, current_dist_to_goal, is_collision, road_dist, cross_track_error,
+    def compute_reward(self, current_dist_to_goal, is_collision, road_dist,
                       battery_consumed, battery_level, mission_status, current_vel, goal_reached,
                       acceleration, obstacle_proximity, speed_excess=0.0, oneway_violation=0.0):
         reward = 0.0
@@ -73,14 +72,6 @@ class RewardSystem:
         else:
             info['reward_progress'] = 0.0
         self.prev_dist_to_goal = current_dist_to_goal
-        
-        # Path deviation penalty (continuous to discourage zig-zag)
-        if not np.isfinite(cross_track_error):
-            cross_track_error = 0.0
-        cte = abs(cross_track_error)
-        penalty = self.w_path_deviation * (cte ** 1.5)
-        reward += penalty
-        info['penalty_path_deviation'] = penalty
         
         # Off-road penalty
         if road_dist > 0.0:
