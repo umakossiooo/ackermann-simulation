@@ -15,7 +15,6 @@ def generate_launch_description():
     
     # Get package directories
     pkg_saye_bringup = get_package_share_directory('saye_bringup')
-    pkg_saye_description = get_package_share_directory('saye_description')
     pkg_ackermann_drl = get_package_share_directory('ackermann_drl')
     
     # Launch arguments

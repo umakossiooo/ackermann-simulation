@@ -18,6 +18,7 @@ install(
 install(PROGRAMS
   scripts/odom_to_tf.py
   scripts/save_map.py
+  scripts/follow_camera.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

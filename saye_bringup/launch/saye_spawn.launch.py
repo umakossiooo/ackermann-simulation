@@ -150,12 +150,16 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Set camera pose using gz service after Gazebo initializes
-    # Calculate camera position based on robot spawn: 5m behind, 3m above (closer view)
-    # Robot: x=5.55, y=-94.69, z=0.35 -> Camera: x=5.23, y=-89.70, z=3.35
-    # Orientation: looking at back of car (pitch down 0.4 rad, yaw -1.5064 rad to face car's back)
-    # Quaternion for roll=0, pitch=0.4, yaw=-1.5064: (x=0.1359, y=0.1449, z=-0.6703, w=0.7150)
-    delayed_camera_setup = TimerAction(
+    # Follow camera node - updates Gazebo camera to follow the robot
+    installed_follow_script = os.path.join(pkg_project_bringup, '..', '..', 'lib', 'saye_bringup', 'follow_camera.py')
+    source_follow_script = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(pkg_project_bringup))),
+        'src', 'ackermann-vehicle-gzsim-ros2', 'saye_bringup', 'scripts', 'follow_camera.py'
+    )
+    follow_script = installed_follow_script if os.path.exists(installed_follow_script) else source_follow_script
+    
+    # Initial camera setup (static position at spawn, then follow camera takes over)
+    initial_camera_setup = TimerAction(
         period=4.0,  # Wait 4 seconds for Gazebo and robot to spawn
         actions=[
             ExecuteProcess(
@@ -171,6 +175,16 @@ def generate_launch_description():
                 condition=IfCondition(LaunchConfiguration('gui'))
             )
         ]
+    )
+    
+    # Follow camera node - continuously updates camera to follow robot
+    follow_camera_node = ExecuteProcess(
+        cmd=['python3', follow_script,
+             '--ros-args',
+             '-p', 'use_sim_time:=true'],
+        name='follow_camera',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('gui'))
     )
 
     return LaunchDescription([
@@ -192,5 +206,6 @@ def generate_launch_description():
         bridge,
         odom_to_tf_node,  # Publish odom -> saye transform for RViz
         rviz,
-        delayed_camera_setup
+        initial_camera_setup,  # Initial camera position
+        follow_camera_node  # Follow camera (updates continuously)
     ])
