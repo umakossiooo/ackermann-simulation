@@ -74,13 +74,15 @@ Visualization Manager:
       Topic:
         Depth: 5
         Durability Policy: Volatile
-        Filter size: 10
+        Filter size: 50
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /scan
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+      Queue Size: 200
+      Tf Timeout: 5.0
     - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Covariance:
@@ -249,6 +251,13 @@ Visualization Manager:
     Background Color: 48; 48; 48
     Fixed Frame: odom
     Frame Rate: 30
+    Default Light: true
+    Default Transforms: true
+    Default Value: true
+    Selection Enabled: true
+    Show Name: false
+    Value: true
+    Tf Timeout: 5.0
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact

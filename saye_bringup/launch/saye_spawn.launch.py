@@ -84,13 +84,18 @@ def generate_launch_description():
         }.items(),
     )
 
-    # Visualize in RViz
-    rviz = Node(
-       package='rviz2',
-       executable='rviz2',
-       arguments=['-d', os.path.join(pkg_project_bringup, 'rviz', 'saye.rviz')],
-       condition=IfCondition(LaunchConfiguration('rviz')),
-       parameters=[{'use_sim_time': True}]
+    # Visualize in RViz - delayed to avoid time jump warnings during Gazebo initialization
+    rviz = TimerAction(
+        period=3.0,  # Delay 3 seconds to allow Gazebo to stabilize
+        actions=[
+            Node(
+                package='rviz2',
+                executable='rviz2',
+                arguments=['-d', os.path.join(pkg_project_bringup, 'rviz', 'saye.rviz')],
+                condition=IfCondition(LaunchConfiguration('rviz')),
+                parameters=[{'use_sim_time': True}]
+            )
+        ]
     )
 
     bridge = Node(
@@ -104,15 +109,21 @@ def generate_launch_description():
         }],
         output='screen'
     )
-    robot_state_publisher = Node(
-        package='robot_state_publisher',
-        executable='robot_state_publisher',
-        parameters=[
-            {'robot_description': robot_description_content},
-            {'frame_prefix': 'saye/'},
-            {'use_sim_time': True}
-        ],
-        output='screen'
+    # robot_state_publisher - delayed to avoid time jump warnings during Gazebo initialization
+    robot_state_publisher = TimerAction(
+        period=2.0,  # Delay 2 seconds to allow Gazebo to stabilize
+        actions=[
+            Node(
+                package='robot_state_publisher',
+                executable='robot_state_publisher',
+                parameters=[
+                    {'robot_description': robot_description_content},
+                    {'frame_prefix': 'saye/'},
+                    {'use_sim_time': True}
+                ],
+                output='screen'
+            )
+        ]
     )
     # Spawn directly from the SDF file to avoid SDF->URDF conversion issues
     gz_spawn_entity = Node(
@@ -158,26 +169,9 @@ def generate_launch_description():
     )
     follow_script = installed_follow_script if os.path.exists(installed_follow_script) else source_follow_script
     
-    # Initial camera setup (static position at spawn, then follow camera takes over)
-    initial_camera_setup = TimerAction(
-        period=4.0,  # Wait 4 seconds for Gazebo and robot to spawn
-        actions=[
-            ExecuteProcess(
-                cmd=[
-                    'gz', 'service',
-                    '-s', '/gui/move_to/pose',
-                    '--reqtype', 'gz.msgs.GUICamera',
-                    '--reptype', 'gz.msgs.Boolean',
-                    '--timeout', '2000',
-                    '--req', 'pose: {position: {x: 5.23, y: -89.70, z: 3.35}, orientation: {x: 0.1359, y: 0.1449, z: -0.6703, w: 0.7150}}'
-                ],
-                output='screen',
-                condition=IfCondition(LaunchConfiguration('gui'))
-            )
-        ]
-    )
-    
     # Follow camera node - continuously updates camera to follow robot
+    # Note: Initial camera setup removed to eliminate "Host unreachable" errors
+    # The follow_camera node will handle camera positioning automatically
     follow_camera_node = ExecuteProcess(
         cmd=['python3', follow_script,
              '--ros-args',
@@ -206,6 +200,5 @@ def generate_launch_description():
         bridge,
         odom_to_tf_node,  # Publish odom -> saye transform for RViz
         rviz,
-        initial_camera_setup,  # Initial camera position
-        follow_camera_node  # Follow camera (updates continuously)
+        follow_camera_node  # Follow camera (updates continuously, handles initial positioning)
     ])

@@ -7,6 +7,7 @@ from nav_msgs.msg import Odometry
 import subprocess
 import math
 import time
+import os
 
 
 class FollowCamera(Node):
@@ -21,15 +22,24 @@ class FollowCamera(Node):
             10
         )
         self.last_update_time = 0.0
-        self.update_interval = 0.1  # Update camera every 100ms
+        self.update_interval = 1.0  # Update camera every 1 second (reduced frequency to minimize service calls)
+        self.startup_delay = 10.0  # Wait 10 seconds after node start before making service calls (ensures Gazebo GUI is fully ready)
+        self.node_start_time = time.time()  # Track when node started
         self.camera_offset_x = -5.0  # 5m behind the car
         self.camera_offset_y = 0.0
         self.camera_offset_z = 3.0   # 3m above ground
         self.pitch = 0.4  # Look down at the car
+        self.last_camera_pos = None  # Track last camera position
+        self.position_threshold = 0.5  # Only update if robot moved more than 0.5m
+        self.service_available = True  # Track if service is available
         self.get_logger().info('Follow camera node started - camera will follow robot')
     
     def odom_callback(self, msg):
         """Update camera position based on robot odometry."""
+        # Wait for startup delay before making any service calls
+        if time.time() - self.node_start_time < self.startup_delay:
+            return
+        
         current_time = time.time()
         if current_time - self.last_update_time < self.update_interval:
             return
@@ -51,6 +61,16 @@ class FollowCamera(Node):
         camera_y = pos.y + self.camera_offset_x * math.sin(yaw) + self.camera_offset_y * math.cos(yaw)
         camera_z = pos.z + self.camera_offset_z
         
+        # Only update if robot has moved significantly (reduces service calls)
+        if self.last_camera_pos is not None:
+            dx = camera_x - self.last_camera_pos[0]
+            dy = camera_y - self.last_camera_pos[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            if distance < self.position_threshold:
+                return  # Robot hasn't moved enough, skip update
+        
+        self.last_camera_pos = (camera_x, camera_y, camera_z)
+        
         # Calculate camera orientation to look at the car
         # Camera yaw should be opposite to robot yaw (looking at back of car)
         camera_yaw = yaw + math.pi
@@ -66,7 +86,11 @@ class FollowCamera(Node):
         qz = -sy * cp
         qw = cy * cp
         
-        # Update Gazebo camera pose
+        # Update Gazebo camera pose (non-blocking to avoid "Host unreachable" errors)
+        # Skip if service is not available
+        if not self.service_available:
+            return
+            
         try:
             # Build pose string with proper escaping for nested braces
             pose_str = (
@@ -78,12 +102,27 @@ class FollowCamera(Node):
                 '-s', '/gui/move_to/pose',
                 '--reqtype', 'gz.msgs.GUICamera',
                 '--reptype', 'gz.msgs.Boolean',
-                '--timeout', '500',
+                '--timeout', '50',
                 '--req', pose_str
             ]
-            subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass  # Ignore errors (camera service might not be available)
+            
+            # Use Popen with completely detached process
+            # Redirect all output to /dev/null to suppress errors
+            # Process is fully detached with start_new_session=True
+            with open(os.devnull, 'w') as devnull:
+                subprocess.Popen(
+                    cmd,
+                    stdout=devnull,
+                    stderr=devnull,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True  # Create new process group to detach completely
+                )
+                # Process is detached and will complete on its own
+                    
+        except Exception as e:
+            # If service fails repeatedly, disable it
+            self.service_available = False
+            self.get_logger().warn(f'Camera service unavailable, disabling follow camera: {e}')
 
 
 def main(args=None):
